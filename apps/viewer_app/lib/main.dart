@@ -6,7 +6,8 @@ import 'src/pairing_storage.dart';
 
 const _signalingUrl = String.fromEnvironment(
   'SIGNALING_URL',
-  defaultValue: 'http://192.168.1.33:4001',
+  // production: Railway deployment (Singapore region)
+  defaultValue: 'https://famirycare-production.up.railway.app',
 );
 
 void main() {

@@ -8,7 +8,9 @@ import 'signaling_service.dart';
 
 const _signalingUrl = String.fromEnvironment(
   'SIGNALING_URL',
-  defaultValue: 'http://192.168.1.33:4001',
+  // production: Railway deployment (Singapore region)
+  // override ตอน build ได้ด้วย --dart-define=SIGNALING_URL=http://192.168.x.x:4001 สำหรับ LAN test
+  defaultValue: 'https://famirycare-production.up.railway.app',
 );
 
 /// 3 สถานะของหน้านี้:
