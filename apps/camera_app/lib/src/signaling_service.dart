@@ -36,6 +36,10 @@ class SignalingService {
   /// viewer สั่ง factory-reset — camera ต้อง clear pref + restore UI + stop FGS
   void Function()? onFactoryReset;
 
+  /// socket reconnect — UI ต้อง re-register + re-join room
+  /// (server ล้าง state ฝั่งตัวเองเมื่อ socket disconnect)
+  void Function()? onReconnect;
+
   void connect() {
     _socket = io.io(_url, <String, dynamic>{
       'transports': ['websocket'],
@@ -57,14 +61,18 @@ class SignalingService {
       try {
         final m = Map<String, dynamic>.from(data as Map);
         onToggleMic?.call((m['enabled'] as bool?) ?? false);
-      } catch (_) {
-        // ถ้า payload ไม่ใช่ object → toggle ตรงข้าม (fallback)
-        onToggleMic?.call(true);
+      } catch (e) {
+        // payload ผิดรูป → ignore เลย (อย่าเปิด mic เผื่อความเป็นส่วนตัว)
+        debugPrint('[signaling] toggle-mic malformed: $e — ignored');
       }
     });
     _socket.on('error', (msg) => onError?.call(msg.toString()));
     _socket.on('connect', (_) => debugPrint('[signaling] connected'));
     _socket.on('disconnect', (_) => debugPrint('[signaling] disconnected'));
+    _socket.on('reconnect', (_) {
+      debugPrint('[signaling] reconnected — UI ต้อง re-subscribe');
+      onReconnect?.call();
+    });
   }
 
   void joinRoom(String roomKey) => _socket.emit('join', roomKey);

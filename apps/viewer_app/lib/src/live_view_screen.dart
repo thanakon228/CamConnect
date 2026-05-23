@@ -48,6 +48,13 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
         });
     _signaling.onError = (msg) => setState(() => _status = 'ข้อผิดพลาด: $msg');
 
+    // socket reconnect → re-join room (server ลบ membership ตอน disconnect)
+    _signaling.onReconnect = () {
+      if (!mounted) return;
+      debugPrint('[live-view] reconnected — re-joining room');
+      _signaling.joinRoom(widget.deviceId);
+    };
+
     _signaling.connect();
 
     _pc = await createPeerConnection(<String, dynamic>{

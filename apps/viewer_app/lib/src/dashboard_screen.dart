@@ -69,6 +69,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
       setState(() => _usage = report);
     };
 
+    // เมื่อ socket reconnect → server ลบ subscribers ของเราไปแล้ว → ต้อง subscribe ใหม่
+    _signaling.onReconnect = () {
+      if (!mounted) return;
+      debugPrint('[dashboard] reconnected — re-subscribing');
+      _signaling.subscribeStatus(widget.deviceId);
+      _signaling.subscribeNotifs(widget.deviceId);
+      _signaling.subscribeUsageStats(widget.deviceId);
+    };
+
     _signaling.connect();
     _signaling.subscribeStatus(widget.deviceId);
     _signaling.subscribeNotifs(widget.deviceId);

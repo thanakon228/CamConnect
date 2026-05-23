@@ -30,6 +30,10 @@ class SignalingService {
   /// camera ส่ง usage stats สด
   void Function(String deviceId, UsageReport report)? onUsageStatsUpdated;
 
+  /// socket reconnect — UI ต้อง re-join room + re-subscribe ทุกอย่าง
+  /// (server clear room membership + subscribers เมื่อ socket disconnect)
+  void Function()? onReconnect;
+
   void connect() {
     _socket = io.io(_url, <String, dynamic>{
       'transports': ['websocket'],
@@ -67,6 +71,10 @@ class SignalingService {
     _socket.on('error', (msg) => onError?.call(msg.toString()));
     _socket.on('connect', (_) => debugPrint('[signaling] connected'));
     _socket.on('disconnect', (_) => debugPrint('[signaling] disconnected'));
+    _socket.on('reconnect', (_) {
+      debugPrint('[signaling] reconnected — UI ต้อง re-subscribe');
+      onReconnect?.call();
+    });
   }
 
   void joinRoom(String roomKey) => _socket.emit('join', roomKey);
