@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Device Admin policies — ใช้ขั้นต่ำเพียงพอที่จะตั้งเป็น Device Owner
+  เพื่อให้กัน Force Stop + Uninstall — ไม่ต้องการ wipe-data, force-lock อะไรพิเศษ
+-->
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-policies>
+        <limit-password />
+    </uses-policies>
+</device-admin>
