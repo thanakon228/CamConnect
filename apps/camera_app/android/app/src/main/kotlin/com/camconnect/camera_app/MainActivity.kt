@@ -45,6 +45,10 @@ class MainActivity : FlutterActivity() {
 
         // สร้าง notification channel สำหรับ "ขอเปิดกล้อง" — FCM heads-up
         createWakeRequestChannel(this)
+
+        // ขอ CAMERA + RECORD_AUDIO เชิงรุก ตอน app launch
+        // (Android 14+ ต้อง grant ก่อน FGS startForeground type=camera|microphone)
+        ensureCameraMicPermissions()
     }
 
     /**
@@ -79,6 +83,13 @@ class MainActivity : FlutterActivity() {
             when (call.method) {
                 "startCameraService" -> {
                     ensureNotificationPermission()
+                    // ขอ RECORD_AUDIO + CAMERA permission ก่อน — Android 14+ บังคับ
+                    // (FGS type=microphone จะ SecurityException ถ้าไม่ grant)
+                    if (!ensureCameraMicPermissions()) {
+                        Log.w(TAG, "Camera/Mic permission missing — requested, skipping FGS start")
+                        result.success(false)
+                        return@setMethodCallHandler
+                    }
                     val notifTitle = call.argument<String>("notifTitle")
                     val notifBody = call.argument<String>("notifBody")
                     CameraStreamingService.start(this, notifTitle, notifBody)
@@ -235,9 +246,36 @@ class MainActivity : FlutterActivity() {
         )
     }
 
+    /**
+     * Android 14+ บังคับว่า FGS type=camera|microphone ต้องมี RECORD_AUDIO + CAMERA
+     * granted ก่อน startForeground มิเช่นนั้น throw SecurityException
+     * → ต้อง request ก่อนเรียก startCameraService
+     */
+    private fun ensureCameraMicPermissions(): Boolean {
+        val needed = mutableListOf<String>()
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            needed.add(Manifest.permission.CAMERA)
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            needed.add(Manifest.permission.RECORD_AUDIO)
+        }
+        if (needed.isEmpty()) return true
+        ActivityCompat.requestPermissions(
+            this,
+            needed.toTypedArray(),
+            REQUEST_CODE_CAMERA_MIC,
+        )
+        return false
+    }
+
     companion object {
         private const val TAG = "MainActivity"
         private const val REQUEST_CODE_POST_NOTIFICATIONS = 1
+        private const val REQUEST_CODE_CAMERA_MIC = 2
         const val WAKE_CHANNEL_ID = "camconnect_wake_request"
 
         /**
