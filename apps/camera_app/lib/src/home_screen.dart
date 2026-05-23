@@ -50,6 +50,7 @@ class _HomeScreenState extends State<HomeScreen> {
           builder: (_) => StreamingScreen(
             code: lastCode,
             signalingUrl: _signalingUrl,
+            silent: true, // auto-route → minimize ตัวเองหลังตั้ง stream
           ),
         ),
       );

