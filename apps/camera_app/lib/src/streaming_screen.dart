@@ -3,6 +3,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'device_id.dart';
 import 'foreground_service.dart';
 import 'signaling_service.dart';
+import 'streaming_prefs.dart';
 
 class StreamingScreen extends StatefulWidget {
   const StreamingScreen({
@@ -72,6 +73,9 @@ class _StreamingScreenState extends State<StreamingScreen> {
     // — pair code เป็นแค่ค่าให้ viewer แลกครั้งแรก หลังจากนั้น viewer จะใช้ device_id ตรงๆ
     _signaling.joinRoom(deviceId);
     setState(() => _status = 'รอผู้ดูเชื่อมต่อ...');
+
+    // เปิดโหมด auto-streaming — ครั้งต่อๆ ไปเปิดแอป/รีบูต จะเข้า streaming screen เลย
+    await StreamingPrefs.enable(pairCode: widget.code);
   }
 
   Future<void> _ensurePeerConnection() async {

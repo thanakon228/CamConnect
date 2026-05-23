@@ -133,6 +133,26 @@ class CameraStreamingService : Service() {
             .build()
     }
 
+    /**
+     * ถ้า user swipe app ออกจาก Recent Tasks — Android ปกติฆ่า service ด้วย
+     * เราจะ schedule restart ผ่าน AlarmManager เพื่อให้ stream กลับมาเร็วๆ
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+
+        val restartIntent = Intent(applicationContext, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            putExtra(BootReceiver.EXTRA_AUTO_START, true)
+        }
+
+        try {
+            // ลอง launch activity เลย — บาง OEM ยังอนุญาตจาก onTaskRemoved
+            startActivity(restartIntent)
+        } catch (e: Exception) {
+            // ถ้าโดน BAL บล็อก ก็ปล่อยให้ Android restart service ด้วย START_STICKY
+        }
+    }
+
     override fun onDestroy() {
         releaseWakeLock()
         super.onDestroy()
