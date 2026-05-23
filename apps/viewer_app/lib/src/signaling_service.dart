@@ -219,6 +219,15 @@ class SignalingService {
   void unsubscribeStatus(String deviceId) =>
       _emitOrQueue('unsubscribe-status', <String, dynamic>{'deviceId': deviceId});
 
+  // ---- Stream controls (ใช้ใน LiveViewScreen ขณะกำลังสตรีม) ----
+
+  /// สลับกล้องหน้า/หลังบนเครื่องลูก — broadcast ใน room ที่ join อยู่
+  void switchCamera() => _socket.emit('switch-camera', <String, dynamic>{});
+
+  /// เปิด/ปิด mic ของเครื่องลูก (default ตอนเริ่มสตรีม = off)
+  void toggleMic(bool enabled) =>
+      _socket.emit('toggle-mic', <String, dynamic>{'enabled': enabled});
+
   /// helper: ถ้า socket ยังไม่ connect → รอ then emit
   void _emitOrQueue(String event, dynamic payload) {
     if (_socket.connected) {

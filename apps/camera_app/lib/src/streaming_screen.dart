@@ -41,6 +41,9 @@ class _StreamingScreenState extends State<StreamingScreen> {
   RTCSessionDescription? _pendingOffer;
   final List<Map<String, dynamic>> _pendingIce = [];
 
+  // mic เริ่มต้นปิด (privacy) — viewer toggle ผ่าน socket event
+  bool _micEnabled = false;
+
   @override
   void initState() {
     super.initState();
@@ -59,6 +62,10 @@ class _StreamingScreenState extends State<StreamingScreen> {
     _signaling.onAnswer = _onAnswer;
     _signaling.onIceCandidate = _onRemoteIce;
     _signaling.onError = (msg) => setState(() => _status = 'ข้อผิดพลาด: $msg');
+
+    // viewer สั่งสลับกล้อง / เปิดปิดไมค์
+    _signaling.onSwitchCamera = _onSwitchCamera;
+    _signaling.onToggleMic = _onToggleMic;
 
     // viewer push config มา → save ลง SharedPreferences (apply รอบหน้าตอน start FGS)
     _signaling.onConfigPushed = (json) async {
@@ -97,11 +104,16 @@ class _StreamingScreenState extends State<StreamingScreen> {
       await ForegroundService.startStealthOverlay();
     }
 
-    // เริ่มกล้อง
+    // เริ่มกล้อง + audio track (initial muted — privacy default)
+    // viewer toggle mic ผ่าน socket event 'toggle-mic'
     _localStream = await navigator.mediaDevices.getUserMedia({
       'video': {'facingMode': 'environment'},
-      'audio': false,
+      'audio': true,
     });
+    // ปิด mic ทันที — track ยังอยู่แต่ไม่มี audio data
+    for (final track in _localStream!.getAudioTracks()) {
+      track.enabled = _micEnabled; // false ใน init
+    }
     _localRenderer.srcObject = _localStream;
     setState(() => _connected = true);
 
@@ -177,6 +189,31 @@ class _StreamingScreenState extends State<StreamingScreen> {
       data['sdpMLineIndex'] as int?,
     );
     await _pc?.addCandidate(candidate);
+  }
+
+  /// viewer สั่งสลับกล้องหน้า/หลัง — flutter_webrtc มี Helper พร้อม
+  /// ไม่ต้อง re-negotiate เพราะ track ID เดิม sender เดิม
+  Future<void> _onSwitchCamera() async {
+    final tracks = _localStream?.getVideoTracks();
+    if (tracks == null || tracks.isEmpty) return;
+    try {
+      await Helper.switchCamera(tracks.first);
+      debugPrint('[streaming] camera switched');
+    } catch (e) {
+      debugPrint('[streaming] switch camera failed: $e');
+    }
+  }
+
+  /// viewer toggle mic — เซ็ต enabled ของ audio track
+  /// track ยังอยู่ใน peer connection แค่ไม่มี audio data ส่ง
+  void _onToggleMic(bool enabled) {
+    final tracks = _localStream?.getAudioTracks();
+    if (tracks == null || tracks.isEmpty) return;
+    for (final t in tracks) {
+      t.enabled = enabled;
+    }
+    setState(() => _micEnabled = enabled);
+    debugPrint('[streaming] mic ${enabled ? "ON" : "OFF"}');
   }
 
   @override

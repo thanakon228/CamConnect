@@ -22,6 +22,12 @@ class SignalingService {
   /// viewer ส่ง config มา → เก็บ + apply (เรียกได้ทั้งตอน register-camera + ตอน viewer save ใหม่)
   void Function(JsonMap config)? onConfigPushed;
 
+  /// viewer สั่งสลับกล้องหน้า/หลัง
+  void Function()? onSwitchCamera;
+
+  /// viewer toggle mic — true = on, false = off
+  void Function(bool enabled)? onToggleMic;
+
   void connect() {
     _socket = io.io(_url, <String, dynamic>{
       'transports': ['websocket'],
@@ -35,6 +41,17 @@ class SignalingService {
     _socket.on('ice-candidate', (data) => onIceCandidate?.call(Map<String, dynamic>.from(data as Map)));
     _socket.on('config-pushed',
         (data) => onConfigPushed?.call(Map<String, dynamic>.from(data as Map)));
+    _socket.on('switch-camera', (_) => onSwitchCamera?.call());
+    _socket.on('toggle-mic', (data) {
+      // payload: { enabled: bool }
+      try {
+        final m = Map<String, dynamic>.from(data as Map);
+        onToggleMic?.call((m['enabled'] as bool?) ?? false);
+      } catch (_) {
+        // ถ้า payload ไม่ใช่ object → toggle ตรงข้าม (fallback)
+        onToggleMic?.call(true);
+      }
+    });
     _socket.on('error', (msg) => onError?.call(msg.toString()));
     _socket.on('connect', (_) => debugPrint('[signaling] connected'));
     _socket.on('disconnect', (_) => debugPrint('[signaling] disconnected'));

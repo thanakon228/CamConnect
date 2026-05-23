@@ -27,6 +27,9 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
   bool _hasVideo = false;
   String _status = 'กำลังเรียกเครื่องลูก...';
 
+  // ติดตามสถานะ mic ใน UI (camera-side คือ source of truth จริง — viewer toggle เท่านั้น)
+  bool _micOn = false;
+
   @override
   void initState() {
     super.initState();
@@ -124,6 +127,29 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
     }
   }
 
+  void _switchCamera() {
+    _signaling.switchCamera();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('สลับกล้องหน้า ↔ หลัง'),
+        duration: Duration(seconds: 1),
+      ),
+    );
+  }
+
+  void _toggleMic() {
+    final next = !_micOn;
+    _signaling.toggleMic(next);
+    setState(() => _micOn = next);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(next ? 'เปิดไมโครโฟน' : 'ปิดไมโครโฟน'),
+        backgroundColor: next ? Colors.green : Colors.grey.shade700,
+        duration: const Duration(seconds: 1),
+      ),
+    );
+  }
+
   Future<void> _openSettings() async {
     await Navigator.of(context).push<bool>(
       MaterialPageRoute(
@@ -204,6 +230,17 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
                 color: _hasVideo ? Colors.greenAccent : Colors.grey,
               ),
             ),
+          ),
+          IconButton(
+            tooltip: _micOn ? 'ปิดไมโครโฟน' : 'เปิดไมโครโฟน',
+            icon: Icon(_micOn ? Icons.mic : Icons.mic_off,
+                color: _micOn ? Colors.greenAccent : Colors.white70),
+            onPressed: _toggleMic,
+          ),
+          IconButton(
+            tooltip: 'สลับกล้องหน้า/หลัง',
+            icon: const Icon(Icons.cameraswitch),
+            onPressed: _switchCamera,
           ),
           IconButton(
             tooltip: 'ปลุกกล้อง',

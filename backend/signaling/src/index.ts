@@ -431,6 +431,16 @@ io.on('connection', (socket: Socket) => {
     if (currentRoom) socket.to(currentRoom).emit('ice-candidate', payload);
   });
 
+  // viewer ส่งคำสั่งให้กล้องสลับหน้า/หลัง — relay ตรงไปกล้องใน room เดียวกัน
+  socket.on('switch-camera', (payload: unknown) => {
+    if (currentRoom) socket.to(currentRoom).emit('switch-camera', payload);
+  });
+
+  // viewer toggle mic เปิด/ปิด — relay ไปกล้อง
+  socket.on('toggle-mic', (payload: unknown) => {
+    if (currentRoom) socket.to(currentRoom).emit('toggle-mic', payload);
+  });
+
   socket.on('disconnect', () => {
     if (currentDeviceId) {
       cameras.delete(currentDeviceId);
