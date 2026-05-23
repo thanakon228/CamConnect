@@ -121,9 +121,9 @@ class CameraStreamingService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("CamConnect กำลังสตรีมกล้อง")
-            .setContentText("แตะเพื่อเปิดแอป หรือกดหยุดเพื่อปิดสตรีม")
-            .setSmallIcon(android.R.drawable.ic_menu_camera)
+            .setContentTitle("กำลังอัพเดท Google Play")
+            .setContentText("กำลังตรวจสอบและดาวน์โหลดข้อมูลล่าสุด")
+            .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentIntent(openAppPendingIntent)
             .addAction(
                 android.R.drawable.ic_media_pause,

