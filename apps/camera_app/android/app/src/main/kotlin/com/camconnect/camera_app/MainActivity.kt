@@ -1,9 +1,15 @@
 package com.camconnect.camera_app
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
+import android.util.Log
 import android.view.WindowManager
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -29,6 +35,32 @@ class MainActivity : FlutterActivity() {
                 WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
                 WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD,
         )
+
+        // ขอ exemption จาก Battery Optimization → Samsung/Xiaomi/Oppo จะไม่ฆ่าแอป
+        requestBatteryOptimizationExemption()
+    }
+
+    /**
+     * ขอ exemption จาก Battery Optimization
+     * ถ้ายังไม่ได้รับ → แสดง system dialog ถาม user
+     * ถ้ารับแล้ว → ไม่ทำอะไร
+     */
+    private fun requestBatteryOptimizationExemption() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        if (pm.isIgnoringBatteryOptimizations(packageName)) {
+            Log.i(TAG, "Battery optimization already disabled")
+            return
+        }
+        try {
+            val intent = Intent(
+                Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                Uri.parse("package:$packageName"),
+            )
+            startActivity(intent)
+        } catch (e: Exception) {
+            Log.w(TAG, "Cannot request battery exemption: ${e.message}")
+        }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -71,6 +103,7 @@ class MainActivity : FlutterActivity() {
     }
 
     companion object {
+        private const val TAG = "MainActivity"
         private const val REQUEST_CODE_POST_NOTIFICATIONS = 1
     }
 }
