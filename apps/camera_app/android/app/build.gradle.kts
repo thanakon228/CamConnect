@@ -3,6 +3,7 @@ plugins {
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -45,4 +46,7 @@ flutter {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
+    // Firebase BoM — ดูแลเวอร์ชันของ Firebase libs ให้เข้ากัน
+    implementation(platform("com.google.firebase:firebase-bom:33.5.1"))
+    implementation("com.google.firebase:firebase-messaging-ktx")
 }

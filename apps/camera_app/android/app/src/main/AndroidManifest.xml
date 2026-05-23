@@ -60,6 +60,15 @@
             android:exported="false"
             android:foregroundServiceType="camera|microphone" />
 
+        <!-- FCM service สำหรับรับ push ปลุก app จากสถานะ killed -->
+        <service
+            android:name=".CamConnectMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <!-- รับ BOOT_COMPLETED เพื่อ auto-restart stream หลังรีบูตเครื่อง -->
         <receiver
             android:name=".BootReceiver"

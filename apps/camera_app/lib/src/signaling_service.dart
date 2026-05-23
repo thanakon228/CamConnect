@@ -39,14 +39,20 @@ class SignalingService {
   void sendAnswer(JsonMap answer) => _socket.emit('answer', answer);
   void sendIceCandidate(JsonMap candidate) => _socket.emit('ice-candidate', candidate);
 
-  /// camera แจ้งตัวตน + pair code ให้ server
+  /// camera แจ้งตัวตน + pair code + FCM token ให้ server
   /// เรียกหลัง connect() แล้ว (รอ socket connect ก่อน — เก็บ pending ไว้)
-  void registerCamera({required String deviceId, required String code}) {
+  void registerCamera({
+    required String deviceId,
+    required String code,
+    String? fcmToken,
+  }) {
     final payload = <String, dynamic>{'deviceId': deviceId, 'code': code};
+    if (fcmToken != null && fcmToken.isNotEmpty) {
+      payload['fcmToken'] = fcmToken;
+    }
     if (_socket.connected) {
       _socket.emit('register-camera', payload);
     } else {
-      // รอจน socket connect แล้วค่อยส่ง
       _socket.onConnect((_) => _socket.emit('register-camera', payload));
     }
   }

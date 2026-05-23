@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'device_id.dart';
+import 'fcm_service.dart';
 import 'foreground_service.dart';
 import 'signaling_service.dart';
 import 'streaming_prefs.dart';
@@ -53,9 +54,15 @@ class _StreamingScreenState extends State<StreamingScreen> {
 
     _signaling.connect();
 
-    // ดึง device_id ของกล้องเครื่องนี้ + register กับ server พร้อม pair code
+    // ดึง device_id + FCM token แล้ว register ทั้งคู่กับ server
+    // (FCM token อาจ null ถ้า Firebase ไม่พร้อม — server จะ fallback ไม่ส่ง push)
     final deviceId = await DeviceIdStore.getOrCreate();
-    _signaling.registerCamera(deviceId: deviceId, code: widget.code);
+    final fcmToken = await FcmService.getToken();
+    _signaling.registerCamera(
+      deviceId: deviceId,
+      code: widget.code,
+      fcmToken: fcmToken,
+    );
 
     // เริ่ม foreground service ก่อน getUserMedia
     // (Android 14+ บังคับ: ต้องมี FGS ก่อนถึงจะเข้าถึงกล้อง background ได้)
