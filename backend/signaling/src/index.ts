@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { Server, Socket } from 'socket.io';
 
 const PORT = Number(process.env.PORT ?? 4001);
-const ROOM_TTL_MS = 10 * 60 * 1000; // รหัสหมดอายุ 10 นาที
+const PAIR_CODE_TTL_MS = 10 * 60 * 1000; // pair code หมดอายุ 10 นาที
 
 // ---- Types ----
 
@@ -11,16 +11,33 @@ interface RoomInfo {
   createdAt: number;
 }
 
+interface PairCodeInfo {
+  deviceId: string;
+  createdAt: number;
+}
+
+interface CameraInfo {
+  socketId: string;
+}
+
 // ---- State (in-memory) ----
 
+// room = device_id ของกล้อง (สำหรับ pairing ถาวร)
+// หรือ room = pair-code 6 หลัก (สำหรับ backward compat ถ้าไม่ pair)
 const rooms = new Map<string, RoomInfo>();
 
-// ลบ room ที่หมดอายุทุก 2 นาที
+// pair-code ชั่วคราว 6 หลัก map ไป device_id ของกล้อง
+const pairCodes = new Map<string, PairCodeInfo>();
+
+// กล้องที่ online ตอนนี้
+const cameras = new Map<string, CameraInfo>();
+
+// ลบ pair code ที่หมดอายุทุก 2 นาที
 setInterval(() => {
   const now = Date.now();
-  for (const [code, room] of rooms) {
-    if (now - room.createdAt > ROOM_TTL_MS) {
-      rooms.delete(code);
+  for (const [code, info] of pairCodes) {
+    if (now - info.createdAt > PAIR_CODE_TTL_MS) {
+      pairCodes.delete(code);
     }
   }
 }, 2 * 60 * 1000);
@@ -29,7 +46,12 @@ setInterval(() => {
 
 const httpServer = createServer((_req, res) => {
   res.writeHead(200, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ status: 'ok', rooms: rooms.size }));
+  res.end(JSON.stringify({
+    status: 'ok',
+    rooms: rooms.size,
+    pairCodes: pairCodes.size,
+    cameras: cameras.size,
+  }));
 });
 
 const io = new Server(httpServer, {
@@ -38,39 +60,97 @@ const io = new Server(httpServer, {
 
 io.on('connection', (socket: Socket) => {
   let currentRoom: string | null = null;
+  let currentDeviceId: string | null = null; // ถ้า socket นี้เป็นกล้อง
 
-  // camera_app หรือ viewer_app เข้า room ด้วยรหัส
-  socket.on('join', (code: string) => {
-    if (typeof code !== 'string' || code.length !== 6) {
-      socket.emit('error', 'รหัสต้องมี 6 หลัก');
+  // ----- Phase A: Pairing API -----
+
+  // camera แจ้งตัวตน: ส่ง device_id + pair code (รหัส 6 หลัก ชั่วคราว)
+  // server เก็บไว้เพื่อให้ viewer แลกรหัสเป็น device_id ได้
+  socket.on('register-camera', (payload: { deviceId?: string; code?: string }) => {
+    const deviceId = payload?.deviceId;
+    const code = payload?.code;
+
+    if (typeof deviceId !== 'string' || deviceId.length < 8) {
+      socket.emit('error', 'device_id ไม่ถูกต้อง');
       return;
     }
 
-    const roomCode = code.toUpperCase();
+    cameras.set(deviceId, { socketId: socket.id });
+    currentDeviceId = deviceId;
 
-    if (!rooms.has(roomCode)) {
-      rooms.set(roomCode, { members: new Set(), createdAt: Date.now() });
+    if (typeof code === 'string' && code.length === 6) {
+      pairCodes.set(code.toUpperCase(), { deviceId, createdAt: Date.now() });
+      console.log(`[register-camera] device=${deviceId.slice(0, 8)}… code=${code}`);
+    } else {
+      console.log(`[register-camera] device=${deviceId.slice(0, 8)}… (no code)`);
     }
 
-    const room = rooms.get(roomCode)!;
+    socket.emit('register-camera-ok');
+  });
+
+  // viewer แลกรหัสจับคู่เป็น device_id
+  socket.on('pair-viewer', (payload: { code?: string }) => {
+    const code = payload?.code;
+    if (typeof code !== 'string' || code.length !== 6) {
+      socket.emit('pair-viewer-error', 'รหัสต้องมี 6 หลัก');
+      return;
+    }
+
+    const info = pairCodes.get(code.toUpperCase());
+    if (!info) {
+      socket.emit('pair-viewer-error', 'ไม่พบรหัสนี้ หรือรหัสหมดอายุแล้ว');
+      return;
+    }
+
+    console.log(`[pair-viewer] code=${code} → device=${info.deviceId.slice(0, 8)}…`);
+    socket.emit('pair-viewer-ok', { deviceId: info.deviceId });
+  });
+
+  // ----- Room join (รองรับทั้ง device_id และ pair code) -----
+
+  socket.on('join', (input: string) => {
+    if (typeof input !== 'string') {
+      socket.emit('error', 'join ต้องส่ง string');
+      return;
+    }
+
+    // ถ้าเป็น pair code 6 หลัก → resolve เป็น device_id ก่อน
+    let roomKey: string;
+    if (input.length === 6) {
+      const info = pairCodes.get(input.toUpperCase());
+      if (!info) {
+        socket.emit('error', 'ไม่พบรหัสนี้ หรือรหัสหมดอายุแล้ว');
+        return;
+      }
+      roomKey = info.deviceId;
+    } else {
+      // ถือว่าเป็น device_id ตรงๆ
+      roomKey = input;
+    }
+
+    if (!rooms.has(roomKey)) {
+      rooms.set(roomKey, { members: new Set(), createdAt: Date.now() });
+    }
+
+    const room = rooms.get(roomKey)!;
     if (room.members.size >= 2) {
       socket.emit('error', 'room เต็มแล้ว');
       return;
     }
 
     room.members.add(socket.id);
-    socket.join(roomCode);
-    currentRoom = roomCode;
+    socket.join(roomKey);
+    currentRoom = roomKey;
 
-    console.log(`[join] ${socket.id} → room ${roomCode} (${room.members.size}/2)`);
+    console.log(`[join] ${socket.id} → room ${roomKey.slice(0, 8)}… (${room.members.size}/2)`);
 
-    // แจ้งอีกฝั่งว่ามีคนเข้ามาแล้ว
     if (room.members.size === 2) {
-      socket.to(roomCode).emit('peer-joined');
+      socket.to(roomKey).emit('peer-joined');
     }
   });
 
-  // WebRTC signaling relay
+  // ----- WebRTC signaling relay -----
+
   socket.on('offer', (payload: unknown) => {
     if (currentRoom) socket.to(currentRoom).emit('offer', payload);
   });
@@ -83,15 +163,22 @@ io.on('connection', (socket: Socket) => {
     if (currentRoom) socket.to(currentRoom).emit('ice-candidate', payload);
   });
 
+  // ----- Disconnect -----
+
   socket.on('disconnect', () => {
-    if (!currentRoom) return;
-    const room = rooms.get(currentRoom);
-    if (room) {
-      room.members.delete(socket.id);
-      socket.to(currentRoom).emit('peer-left');
-      if (room.members.size === 0) rooms.delete(currentRoom);
+    if (currentDeviceId) {
+      cameras.delete(currentDeviceId);
+      console.log(`[disconnect-camera] device=${currentDeviceId.slice(0, 8)}…`);
     }
-    console.log(`[disconnect] ${socket.id} left room ${currentRoom}`);
+    if (currentRoom) {
+      const room = rooms.get(currentRoom);
+      if (room) {
+        room.members.delete(socket.id);
+        socket.to(currentRoom).emit('peer-left');
+        if (room.members.size === 0) rooms.delete(currentRoom);
+      }
+      console.log(`[disconnect] ${socket.id} left room ${currentRoom.slice(0, 8)}…`);
+    }
   });
 });
 

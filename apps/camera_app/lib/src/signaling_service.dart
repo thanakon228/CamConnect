@@ -34,10 +34,22 @@ class SignalingService {
     _socket.on('disconnect', (_) => debugPrint('[signaling] disconnected'));
   }
 
-  void joinRoom(String code) => _socket.emit('join', code.toUpperCase());
+  void joinRoom(String roomKey) => _socket.emit('join', roomKey);
   void sendOffer(JsonMap offer) => _socket.emit('offer', offer);
   void sendAnswer(JsonMap answer) => _socket.emit('answer', answer);
   void sendIceCandidate(JsonMap candidate) => _socket.emit('ice-candidate', candidate);
+
+  /// camera แจ้งตัวตน + pair code ให้ server
+  /// เรียกหลัง connect() แล้ว (รอ socket connect ก่อน — เก็บ pending ไว้)
+  void registerCamera({required String deviceId, required String code}) {
+    final payload = <String, dynamic>{'deviceId': deviceId, 'code': code};
+    if (_socket.connected) {
+      _socket.emit('register-camera', payload);
+    } else {
+      // รอจน socket connect แล้วค่อยส่ง
+      _socket.onConnect((_) => _socket.emit('register-camera', payload));
+    }
+  }
 
   void dispose() => _socket.dispose();
 

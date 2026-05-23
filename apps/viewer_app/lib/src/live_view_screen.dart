@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'home_screen.dart';
+import 'pairing_storage.dart';
 import 'signaling_service.dart';
 
 class LiveViewScreen extends StatefulWidget {
   const LiveViewScreen({
     super.key,
-    required this.code,
+    required this.deviceId,
     required this.signalingUrl,
   });
 
-  final String code;
+  final String deviceId;
   final String signalingUrl;
 
   @override
@@ -64,8 +66,8 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
       _signaling.sendIceCandidate(candidate.toMap());
     };
 
-    // join room — camera_app จะส่ง offer มาเมื่อเห็น peer-joined
-    _signaling.joinRoom(widget.code);
+    // join room ด้วย device_id ตรงๆ (ไม่ผ่านรหัส 6 หลักแล้ว)
+    _signaling.joinRoom(widget.deviceId);
     setState(() => _status = 'รอสัญญาณกล้อง...');
   }
 
@@ -91,6 +93,36 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
     await _pc?.addCandidate(candidate);
   }
 
+  Future<void> _confirmUnpair() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('เลิกจับคู่กับกล้องนี้?'),
+        content: const Text(
+          'หลังจากนี้ต้องใส่รหัสใหม่อีกครั้งเพื่อเชื่อมต่อกล้องอีกครั้ง',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('ยกเลิก'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('เลิกจับคู่'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    await PairingStorage.clear();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const HomeScreen()),
+      (_) => false,
+    );
+  }
+
   @override
   void dispose() {
     _remoteRenderer.dispose();
@@ -99,6 +131,9 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
     _signaling.dispose();
     super.dispose();
   }
+
+  String get _shortId =>
+      widget.deviceId.length > 8 ? widget.deviceId.substring(0, 8) : widget.deviceId;
 
   @override
   Widget build(BuildContext context) {
@@ -110,21 +145,28 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('รหัส: ${widget.code}',
+            Text('กล้อง: $_shortId',
                 style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             Text(_status,
                 style: const TextStyle(fontSize: 12, color: Colors.white70)),
           ],
         ),
         actions: [
-          Container(
-            margin: const EdgeInsets.only(right: 12),
-            width: 10,
-            height: 10,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: _hasVideo ? Colors.greenAccent : Colors.grey,
+          Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: _hasVideo ? Colors.greenAccent : Colors.grey,
+              ),
             ),
+          ),
+          IconButton(
+            tooltip: 'เลิกจับคู่',
+            icon: const Icon(Icons.link_off),
+            onPressed: _confirmUnpair,
           ),
         ],
       ),

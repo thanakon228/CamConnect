@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'device_id.dart';
+import 'foreground_service.dart';
 import 'signaling_service.dart';
 
 class StreamingScreen extends StatefulWidget {
@@ -50,6 +52,14 @@ class _StreamingScreenState extends State<StreamingScreen> {
 
     _signaling.connect();
 
+    // ดึง device_id ของกล้องเครื่องนี้ + register กับ server พร้อม pair code
+    final deviceId = await DeviceIdStore.getOrCreate();
+    _signaling.registerCamera(deviceId: deviceId, code: widget.code);
+
+    // เริ่ม foreground service ก่อน getUserMedia
+    // (Android 14+ บังคับ: ต้องมี FGS ก่อนถึงจะเข้าถึงกล้อง background ได้)
+    await ForegroundService.start();
+
     // เริ่มกล้อง
     _localStream = await navigator.mediaDevices.getUserMedia({
       'video': {'facingMode': 'environment'},
@@ -58,8 +68,9 @@ class _StreamingScreenState extends State<StreamingScreen> {
     _localRenderer.srcObject = _localStream;
     setState(() => _connected = true);
 
-    // join signaling room — ยังไม่สร้าง PeerConnection จนกว่า viewer จะเข้ามา
-    _signaling.joinRoom(widget.code);
+    // join signaling room ด้วย device_id (ไม่ใช่ pair code 6 หลัก)
+    // — pair code เป็นแค่ค่าให้ viewer แลกครั้งแรก หลังจากนั้น viewer จะใช้ device_id ตรงๆ
+    _signaling.joinRoom(deviceId);
     setState(() => _status = 'รอผู้ดูเชื่อมต่อ...');
   }
 
@@ -121,6 +132,8 @@ class _StreamingScreenState extends State<StreamingScreen> {
     _localStream?.dispose();
     _pc?.dispose();
     _signaling.dispose();
+    // หยุด foreground service เมื่อออกจากหน้าสตรีม
+    ForegroundService.stop();
     super.dispose();
   }
 

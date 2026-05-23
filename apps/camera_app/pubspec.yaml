@@ -37,6 +37,8 @@ dependencies:
   flutter_webrtc: ^1.4.1
   socket_io_client: ^3.0.2
   flutter_riverpod: ^2.6.1
+  shared_preferences: ^2.3.3
+  uuid: ^4.5.1
 
 dev_dependencies:
   flutter_test:

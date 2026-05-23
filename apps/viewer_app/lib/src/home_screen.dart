@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'live_view_screen.dart';
+import 'pairing_storage.dart';
+import 'signaling_service.dart';
 
 const _signalingUrl = String.fromEnvironment(
   'SIGNALING_URL',
@@ -16,18 +18,45 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final _codeController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
+  bool _busy = false;
+  String? _errorMsg;
 
-  void _connect() {
+  Future<void> _pairAndConnect() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_busy) return;
     final code = _codeController.text.trim().toUpperCase();
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => LiveViewScreen(
-          code: code,
-          signalingUrl: _signalingUrl,
+
+    setState(() {
+      _busy = true;
+      _errorMsg = null;
+    });
+
+    final svc = SignalingService(_signalingUrl);
+    svc.connect();
+
+    try {
+      final deviceId = await svc.pairViewer(code);
+      svc.dispose();
+
+      await PairingStorage.setDeviceId(deviceId);
+
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => LiveViewScreen(
+            deviceId: deviceId,
+            signalingUrl: _signalingUrl,
+          ),
         ),
-      ),
-    );
+      );
+    } catch (e) {
+      svc.dispose();
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _errorMsg = e.toString();
+      });
+    }
   }
 
   @override
@@ -61,7 +90,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'ใส่รหัส 6 หลักจากอุปกรณ์กล้อง',
+                  'ใส่รหัส 6 หลักจากอุปกรณ์กล้อง — ครั้งเดียวพอ',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.black54),
                 ),
@@ -71,6 +100,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   textCapitalization: TextCapitalization.characters,
                   maxLength: 6,
                   textAlign: TextAlign.center,
+                  enabled: !_busy,
                   style: const TextStyle(
                     fontSize: 32,
                     fontWeight: FontWeight.bold,
@@ -94,13 +124,30 @@ class _HomeScreenState extends State<HomeScreen> {
                     }
                     return null;
                   },
-                  onFieldSubmitted: (_) => _connect(),
+                  onFieldSubmitted: (_) => _pairAndConnect(),
                 ),
+                if (_errorMsg != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    _errorMsg!,
+                    style: const TextStyle(color: Colors.red),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
                 const SizedBox(height: 24),
                 FilledButton.icon(
-                  onPressed: _connect,
-                  icon: const Icon(Icons.play_circle),
-                  label: const Text('เชื่อมต่อ'),
+                  onPressed: _busy ? null : _pairAndConnect,
+                  icon: _busy
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.play_circle),
+                  label: Text(_busy ? 'กำลังจับคู่...' : 'เชื่อมต่อ'),
                   style: FilledButton.styleFrom(
                     minimumSize: const Size(double.infinity, 52),
                   ),
