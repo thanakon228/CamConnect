@@ -109,6 +109,23 @@ class MainActivity : FlutterActivity() {
                     moveTaskToBack(true)
                     result.success(true)
                 }
+                "readDeviceStatus" -> {
+                    // อ่าน battery/network/foreground app/screen — ใช้ใน periodic reporter
+                    result.success(DeviceStatusReader.read(this))
+                }
+                "hasUsageStatsPermission" -> {
+                    result.success(DeviceStatusReader.hasUsageStatsPermission(this))
+                }
+                "openUsageStatsSettings" -> {
+                    // deep link ไป Settings → Usage access (user ต้อง grant manual)
+                    try {
+                        startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                        result.success(true)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Cannot open usage access settings: ${e.message}")
+                        result.success(false)
+                    }
+                }
                 else -> result.notImplemented()
             }
         }

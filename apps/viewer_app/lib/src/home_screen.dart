@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'live_view_screen.dart';
+import 'dashboard_screen.dart';
 import 'pairing_storage.dart';
 import 'signaling_service.dart';
 
@@ -43,7 +43,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder: (_) => LiveViewScreen(
+          builder: (_) => DashboardScreen(
             deviceId: deviceId,
             signalingUrl: _signalingUrl,
           ),

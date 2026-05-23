@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'src/dashboard_screen.dart';
 import 'src/home_screen.dart';
-import 'src/live_view_screen.dart';
 import 'src/pairing_storage.dart';
 
 const _signalingUrl = String.fromEnvironment(
@@ -46,8 +46,8 @@ class _Bootstrap extends StatelessWidget {
         }
         final deviceId = snapshot.data;
         if (deviceId != null && deviceId.isNotEmpty) {
-          // จับคู่แล้ว → เข้า LiveView ตรงๆ
-          return LiveViewScreen(
+          // จับคู่แล้ว → เข้า Dashboard (ดูสถานะ + เลือกดูกล้องเอง)
+          return DashboardScreen(
             deviceId: deviceId,
             signalingUrl: _signalingUrl,
           );

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'camera_config.dart';
+import 'device_status.dart';
 
 typedef JsonMap = Map<String, dynamic>;
 
@@ -18,6 +19,9 @@ class SignalingService {
   void Function(JsonMap candidate)? onIceCandidate;
   void Function(String msg)? onError;
 
+  /// camera รายงาน status สด (หลัง subscribe-status)
+  void Function(String deviceId, DeviceStatus status)? onStatusUpdated;
+
   void connect() {
     _socket = io.io(_url, <String, dynamic>{
       'transports': ['websocket'],
@@ -29,6 +33,13 @@ class SignalingService {
     _socket.on('offer', (data) => onOffer?.call(Map<String, dynamic>.from(data as Map)));
     _socket.on('answer', (data) => onAnswer?.call(Map<String, dynamic>.from(data as Map)));
     _socket.on('ice-candidate', (data) => onIceCandidate?.call(Map<String, dynamic>.from(data as Map)));
+    _socket.on('status-updated', (data) {
+      final m = Map<String, dynamic>.from(data as Map);
+      final deviceId = m['deviceId'] as String?;
+      final s = m['status'];
+      if (deviceId == null || s == null) return;
+      onStatusUpdated?.call(deviceId, DeviceStatus.fromJson(Map<String, dynamic>.from(s as Map)));
+    });
     _socket.on('error', (msg) => onError?.call(msg.toString()));
     _socket.on('connect', (_) => debugPrint('[signaling] connected'));
     _socket.on('disconnect', (_) => debugPrint('[signaling] disconnected'));
@@ -167,6 +178,46 @@ class SignalingService {
       onTimeout: () => throw 'timeout: เซิร์ฟเวอร์ไม่ตอบ',
     );
   }
+
+  // ---- Device status (subscribe pattern) ----
+
+  /// ดึง status snapshot ปัจจุบัน (one-shot)
+  Future<DeviceStatus> getStatus(String deviceId) {
+    final completer = Completer<DeviceStatus>();
+
+    void okHandler(dynamic data) {
+      if (completer.isCompleted) return;
+      try {
+        final m = Map<String, dynamic>.from(data as Map);
+        final s = Map<String, dynamic>.from(m['status'] as Map);
+        completer.complete(DeviceStatus.fromJson(s));
+      } catch (e) {
+        completer.completeError('ตอบกลับไม่ถูกต้อง: $e');
+      }
+    }
+
+    void errHandler(dynamic msg) {
+      if (!completer.isCompleted) completer.completeError(msg.toString());
+    }
+
+    _socket.once('status-current', okHandler);
+    _socket.once('get-status-error', errHandler);
+
+    _emitOrQueue('get-status', <String, dynamic>{'deviceId': deviceId});
+
+    return completer.future.timeout(
+      const Duration(seconds: 10),
+      onTimeout: () => throw 'timeout: ยังไม่มี status — กล้องอาจยังไม่ online',
+    );
+  }
+
+  /// subscribe live status updates — server จะ emit 'status-updated' มาเรื่อยๆ
+  /// → ตัว callback ใน [onStatusUpdated]
+  void subscribeStatus(String deviceId) =>
+      _emitOrQueue('subscribe-status', <String, dynamic>{'deviceId': deviceId});
+
+  void unsubscribeStatus(String deviceId) =>
+      _emitOrQueue('unsubscribe-status', <String, dynamic>{'deviceId': deviceId});
 
   /// helper: ถ้า socket ยังไม่ connect → รอ then emit
   void _emitOrQueue(String event, dynamic payload) {

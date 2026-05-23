@@ -5,6 +5,7 @@ import 'device_id.dart';
 import 'fcm_service.dart';
 import 'foreground_service.dart';
 import 'signaling_service.dart';
+import 'status_reporter.dart';
 import 'streaming_prefs.dart';
 
 class StreamingScreen extends StatefulWidget {
@@ -28,6 +29,7 @@ class StreamingScreen extends StatefulWidget {
 
 class _StreamingScreenState extends State<StreamingScreen> {
   late final SignalingService _signaling;
+  StatusReporter? _statusReporter;
   RTCPeerConnection? _pc;
   MediaStream? _localStream;
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
@@ -108,6 +110,11 @@ class _StreamingScreenState extends State<StreamingScreen> {
     _signaling.joinRoom(deviceId);
     setState(() => _status = 'รอผู้ดูเชื่อมต่อ...');
 
+    // เริ่ม status reporter — รายงาน battery/signal/foreground app ทุก 30s
+    // ไปยัง viewer Dashboard (server cache + relay ให้ subscriber)
+    _statusReporter = StatusReporter(signaling: _signaling, deviceId: deviceId);
+    _statusReporter!.start();
+
     // เปิดโหมด auto-streaming — ครั้งต่อๆ ไปเปิดแอป/รีบูต จะเข้า streaming screen เลย
     await StreamingPrefs.enable(pairCode: widget.code);
 
@@ -174,6 +181,7 @@ class _StreamingScreenState extends State<StreamingScreen> {
 
   @override
   void dispose() {
+    _statusReporter?.stop();
     _localRenderer.dispose();
     _localStream?.dispose();
     _pc?.dispose();

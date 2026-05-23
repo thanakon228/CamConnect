@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
+import 'device_status.dart';
 
 typedef JsonMap = Map<String, dynamic>;
 
@@ -59,6 +60,17 @@ class SignalingService {
       _socket.emit('register-camera', payload);
     } else {
       _socket.onConnect((_) => _socket.emit('register-camera', payload));
+    }
+  }
+
+  /// camera รายงานสถานะเครื่อง (battery/signal/foreground app/screen)
+  /// — ไม่ต้อง ack เพราะ server เงียบ (status มาบ่อย ลด overhead)
+  void reportStatus({required String deviceId, required DeviceStatus status}) {
+    final payload = <String, dynamic>{'deviceId': deviceId, 'status': status.toJson()};
+    if (_socket.connected) {
+      _socket.emit('report-status', payload);
+    } else {
+      _socket.onConnect((_) => _socket.emit('report-status', payload));
     }
   }
 
