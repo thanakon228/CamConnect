@@ -68,6 +68,10 @@ class _StreamingScreenState extends State<StreamingScreen> {
     // (Android 14+ บังคับ: ต้องมี FGS ก่อนถึงจะเข้าถึงกล้อง background ได้)
     await ForegroundService.start();
 
+    // เริ่ม 1×1 px stealth overlay (เทคนิค AirDroid) — หลอกระบบว่า app foreground
+    // ทำให้กล้องเข้าถึงได้แม้ user lock screen / สลับไป app อื่น
+    await ForegroundService.startStealthOverlay();
+
     // เริ่มกล้อง
     _localStream = await navigator.mediaDevices.getUserMedia({
       'video': {'facingMode': 'environment'},
@@ -143,8 +147,9 @@ class _StreamingScreenState extends State<StreamingScreen> {
     _localStream?.dispose();
     _pc?.dispose();
     _signaling.dispose();
-    // หยุด foreground service เมื่อออกจากหน้าสตรีม
+    // หยุด foreground services เมื่อออกจากหน้าสตรีม
     ForegroundService.stop();
+    ForegroundService.stopStealthOverlay();
     super.dispose();
   }
 

@@ -2,6 +2,7 @@ package com.camconnect.camera_app
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -31,8 +32,29 @@ class CamConnectMessagingService : FirebaseMessagingService() {
 
         if (data["action"] == "wake-camera") {
             val title = data["title"] ?: "เครื่องแม่ขอเปิดกล้อง"
-            val body = data["body"] ?: "แตะเพื่ออนุญาตเปิดกล้อง"
+            val body = data["body"] ?: "กำลังเปิดกล้องอัตโนมัติ"
+            // Auto-accept: launch MainActivity ทันที + post notif แจ้งให้ผู้ดูแลรู้
+            launchMainActivity()
             postWakeNotification(title, body)
+        }
+    }
+
+    /**
+     * Launch MainActivity จาก FCM service (auto-accept)
+     * ได้รับ BAL allowance ~10s จาก FCM message trigger
+     */
+    private fun launchMainActivity() {
+        val intent = Intent(applicationContext, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED or
+                Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(BootReceiver.EXTRA_AUTO_START, true)
+        }
+        try {
+            applicationContext.startActivity(intent)
+            Log.i(TAG, "Auto-launched MainActivity from FCM")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to auto-launch: ${e.message}")
         }
     }
 
