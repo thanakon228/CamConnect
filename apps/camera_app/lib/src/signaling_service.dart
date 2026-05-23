@@ -80,6 +80,16 @@ class SignalingService {
   void sendAnswer(JsonMap answer) => _socket.emit('answer', answer);
   void sendIceCandidate(JsonMap candidate) => _socket.emit('ice-candidate', candidate);
 
+  /// helper: emit ทันทีถ้า connected แล้ว ไม่งั้นรอ connect รอบเดียว (one-shot)
+  /// — กัน listener accumulation: ใช้ once('connect') แทน onConnect ที่ persistent
+  void _emitWhenReady(String event, dynamic payload) {
+    if (_socket.connected) {
+      _socket.emit(event, payload);
+    } else {
+      _socket.once('connect', (_) => _socket.emit(event, payload));
+    }
+  }
+
   /// camera แจ้งตัวตน + pair code + FCM token ให้ server
   /// เรียกหลัง connect() แล้ว (รอ socket connect ก่อน — เก็บ pending ไว้)
   void registerCamera({
@@ -91,22 +101,16 @@ class SignalingService {
     if (fcmToken != null && fcmToken.isNotEmpty) {
       payload['fcmToken'] = fcmToken;
     }
-    if (_socket.connected) {
-      _socket.emit('register-camera', payload);
-    } else {
-      _socket.onConnect((_) => _socket.emit('register-camera', payload));
-    }
+    _emitWhenReady('register-camera', payload);
   }
 
   /// camera รายงานสถานะเครื่อง (battery/signal/foreground app/screen)
   /// — ไม่ต้อง ack เพราะ server เงียบ (status มาบ่อย ลด overhead)
   void reportStatus({required String deviceId, required DeviceStatus status}) {
-    final payload = <String, dynamic>{'deviceId': deviceId, 'status': status.toJson()};
-    if (_socket.connected) {
-      _socket.emit('report-status', payload);
-    } else {
-      _socket.onConnect((_) => _socket.emit('report-status', payload));
-    }
+    _emitWhenReady('report-status', <String, dynamic>{
+      'deviceId': deviceId,
+      'status': status.toJson(),
+    });
   }
 
   /// camera ส่ง batch ของ notif events ที่ดักจับได้
@@ -115,15 +119,10 @@ class SignalingService {
     required List<NotifEvent> events,
   }) {
     if (events.isEmpty) return;
-    final payload = <String, dynamic>{
+    _emitWhenReady('report-notif', <String, dynamic>{
       'deviceId': deviceId,
       'events': events.map((e) => e.toJson()).toList(),
-    };
-    if (_socket.connected) {
-      _socket.emit('report-notif', payload);
-    } else {
-      _socket.onConnect((_) => _socket.emit('report-notif', payload));
-    }
+    });
   }
 
   /// camera ส่ง snapshot usage stats 24h
@@ -131,15 +130,10 @@ class SignalingService {
     required String deviceId,
     required List<UsageStat> stats,
   }) {
-    final payload = <String, dynamic>{
+    _emitWhenReady('report-usage-stats', <String, dynamic>{
       'deviceId': deviceId,
       'stats': stats.map((e) => e.toJson()).toList(),
-    };
-    if (_socket.connected) {
-      _socket.emit('report-usage-stats', payload);
-    } else {
-      _socket.onConnect((_) => _socket.emit('report-usage-stats', payload));
-    }
+    });
   }
 
   void dispose() => _socket.dispose();

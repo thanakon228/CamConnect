@@ -142,6 +142,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _enableStealthMode() async {
     // เช็คก่อนว่า overlay permission grant ไว้แล้ว
     final perms = await ForegroundService.checkAllPermissions();
+    if (!mounted) return; // B6: guard context หลัง await
     if (!(perms['overlay'] ?? false)) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

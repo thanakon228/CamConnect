@@ -113,7 +113,8 @@ class SignalingService {
     if (_socket.connected) {
       emitNow();
     } else {
-      _socket.onConnect((_) => emitNow());
+      // ใช้ once → ถ้า timeout แล้ว listener auto-removed ตอน connect ครั้งถัดไป
+      _socket.once('connect', (_) => emitNow());
     }
 
     // timeout กันค้าง 10 วินาที
@@ -343,7 +344,9 @@ class SignalingService {
       try {
         final m = Map<String, dynamic>.from(data as Map);
         completer.complete((m['relayed'] as bool?) ?? false);
-      } catch (_) {
+      } catch (e) {
+        // D5: log parse error ก่อน fallback — protocol mismatch จะ debug ได้
+        debugPrint('[signaling] factory-reset-ok parse failed: $e');
         completer.complete(false);
       }
     }
@@ -372,12 +375,13 @@ class SignalingService {
   void toggleMic(bool enabled) =>
       _socket.emit('toggle-mic', <String, dynamic>{'enabled': enabled});
 
-  /// helper: ถ้า socket ยังไม่ connect → รอ then emit
+  /// helper: emit ทันทีถ้า connected — ไม่งั้นรอ 'connect' รอบเดียว (one-shot)
+  /// ใช้ once() ไม่ใช่ onConnect() กัน listener accumulate ทุกครั้งที่ disconnect-reconnect
   void _emitOrQueue(String event, dynamic payload) {
     if (_socket.connected) {
       _socket.emit(event, payload);
     } else {
-      _socket.onConnect((_) => _socket.emit(event, payload));
+      _socket.once('connect', (_) => _socket.emit(event, payload));
     }
   }
 

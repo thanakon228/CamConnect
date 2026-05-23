@@ -57,7 +57,12 @@ class _StreamingScreenState extends State<StreamingScreen> {
   @override
   void initState() {
     super.initState();
-    _init();
+    // D4: catch unhandled errors ใน _init() — ไม่ให้กลายเป็น silent unhandled Future
+    _init().catchError((Object e, StackTrace st) {
+      debugPrint('[streaming] _init failed: $e\n$st');
+      if (!mounted) return;
+      setState(() => _status = 'เริ่มสตรีมไม่สำเร็จ: $e');
+    });
   }
 
   Future<void> _init() async {
@@ -65,13 +70,19 @@ class _StreamingScreenState extends State<StreamingScreen> {
     _signaling = SignalingService(widget.signalingUrl);
 
     _signaling.onPeerJoined = _onViewerJoined;
-    _signaling.onPeerLeft = () => setState(() {
-          _viewerConnected = false;
-          _status = 'ผู้ดูออกจากระบบแล้ว';
-        });
+    _signaling.onPeerLeft = () {
+      if (!mounted) return;
+      setState(() {
+        _viewerConnected = false;
+        _status = 'ผู้ดูออกจากระบบแล้ว';
+      });
+    };
     _signaling.onAnswer = _onAnswer;
     _signaling.onIceCandidate = _onRemoteIce;
-    _signaling.onError = (msg) => setState(() => _status = 'ข้อผิดพลาด: $msg');
+    _signaling.onError = (msg) {
+      if (!mounted) return;
+      setState(() => _status = 'ข้อผิดพลาด: $msg');
+    };
 
     // viewer สั่งสลับกล้อง / เปิดปิดไมค์ / refresh usage stats / factory-reset
     _signaling.onSwitchCamera = _onSwitchCamera;
@@ -155,6 +166,10 @@ class _StreamingScreenState extends State<StreamingScreen> {
     _signaling.joinRoom(deviceId);
     if (!mounted) return;
     setState(() => _status = 'รอผู้ดูเชื่อมต่อ...');
+
+    // B5: ก่อนสร้าง timer/reporter — ถ้า disposed ระหว่าง init → ไม่สร้าง
+    // (กัน timer ค้างยิงเข้า dead state)
+    if (!mounted) return;
 
     // เริ่ม status reporter — รายงาน battery/signal/foreground app ทุก 30s
     // ไปยัง viewer Dashboard (server cache + relay ให้ subscriber)

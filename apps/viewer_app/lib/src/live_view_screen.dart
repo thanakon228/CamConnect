@@ -38,15 +38,22 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
 
   Future<void> _init() async {
     await _remoteRenderer.initialize();
+    if (!mounted) return;
     _signaling = SignalingService(widget.signalingUrl);
 
     _signaling.onOffer = _onOffer;
     _signaling.onIceCandidate = _onRemoteIce;
-    _signaling.onPeerLeft = () => setState(() {
-          _status = 'กล้องออกจากระบบแล้ว';
-          _hasVideo = false;
-        });
-    _signaling.onError = (msg) => setState(() => _status = 'ข้อผิดพลาด: $msg');
+    _signaling.onPeerLeft = () {
+      if (!mounted) return;
+      setState(() {
+        _status = 'กล้องออกจากระบบแล้ว';
+        _hasVideo = false;
+      });
+    };
+    _signaling.onError = (msg) {
+      if (!mounted) return;
+      setState(() => _status = 'ข้อผิดพลาด: $msg');
+    };
 
     // socket reconnect → re-join room (server ลบ membership ตอน disconnect)
     _signaling.onReconnect = () {
@@ -61,8 +68,14 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
       'iceServers': <Map<String, dynamic>>[],
       'sdpSemantics': 'unified-plan',
     });
+    if (!mounted) {
+      _pc?.dispose();
+      _pc = null;
+      return;
+    }
 
     _pc!.onTrack = (event) {
+      if (!mounted) return;
       if (event.streams.isNotEmpty) {
         setState(() {
           _remoteStream = event.streams[0];
@@ -79,6 +92,7 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
 
     // join room ด้วย device_id ตรงๆ (ไม่ผ่านรหัส 6 หลักแล้ว)
     _signaling.joinRoom(widget.deviceId);
+    if (!mounted) return;
     setState(() => _status = 'กำลังเรียกเครื่องลูก... รอการอนุญาต');
   }
 

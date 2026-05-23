@@ -92,8 +92,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final r = await _signaling.getUsageStats(widget.deviceId);
       if (!mounted) return;
       setState(() => _usage = r);
-    } catch (_) {
-      // เงียบ — Dashboard ยังใช้งานได้ ไม่บล็อก
+    } catch (e) {
+      // D7: log error เพื่อ debug — Dashboard ยังใช้งานได้, ไม่บล็อก UI
+      debugPrint('[dashboard] _fetchInitialUsageStats failed: $e');
     }
   }
 
@@ -123,8 +124,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ..clear()
           ..addAll(list);
       });
-    } catch (_) {
-      // เงียบ — ไม่บล็อก Dashboard ถ้า notif fetch fail
+    } catch (e) {
+      // D7: log error เพื่อ debug — Dashboard ยังใช้งานได้, ไม่บล็อก UI
+      debugPrint('[dashboard] _fetchInitialNotifs failed: $e');
     }
   }
 
