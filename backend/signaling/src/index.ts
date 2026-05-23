@@ -134,6 +134,10 @@ interface UsageReport {
 const usageReports = new Map<string, UsageReport>();
 const usageSubscribers = new Map<string, Set<string>>();
 
+// device_id ที่ค้างรอ factory-reset (viewer สั่งตอน camera offline)
+// → relay event เมื่อ camera register-camera ครั้งต่อไป
+const pendingResets = new Set<string>();
+
 // กัน spam push: device_id → timestamp ล่าสุดที่ส่ง
 const lastPushAt = new Map<string, number>();
 const PUSH_COOLDOWN_MS = 5_000; // ห้ามส่ง push ซ้ำใน 5 วินาที
@@ -252,6 +256,13 @@ io.on('connection', (socket: Socket) => {
       if (existingConfig) {
         socket.emit('config-pushed', existingConfig);
         console.log(`[register-camera] pushed pending config to ${deviceId.slice(0, 8)}…`);
+      }
+
+      // ถ้ามี factory-reset ค้างอยู่ (viewer สั่งตอน camera offline) → relay เลย
+      if (pendingResets.has(deviceId)) {
+        pendingResets.delete(deviceId);
+        socket.emit('factory-reset', { deviceId });
+        console.log(`[register-camera] relayed pending factory-reset to ${deviceId.slice(0, 8)}…`);
       }
     },
   );
@@ -529,23 +540,21 @@ io.on('connection', (socket: Socket) => {
       socket.emit('factory-reset-error', 'device_id ไม่ถูกต้อง');
       return;
     }
-    const cam = cameras.get(deviceId);
-    if (!cam) {
-      // กล้อง offline → ลบ state ฝั่ง server เลย (รอกล้อง connect รอบหน้าก็จะ register ใหม่)
-      configs.delete(deviceId);
-      statuses.delete(deviceId);
-      notifBuffers.delete(deviceId);
-      usageReports.delete(deviceId);
-      socket.emit('factory-reset-ok', { deviceId, relayed: false });
-      console.log(`[factory-reset] ${deviceId.slice(0, 8)}… camera offline — server state cleared`);
-      return;
-    }
-    io.to(cam.socketId).emit('factory-reset', { deviceId });
-    // เคลียร์ state ฝั่ง server พร้อมกัน
+    // เคลียร์ state ฝั่ง server ก่อนเสมอ
     configs.delete(deviceId);
     statuses.delete(deviceId);
     notifBuffers.delete(deviceId);
     usageReports.delete(deviceId);
+
+    const cam = cameras.get(deviceId);
+    if (!cam) {
+      // กล้อง offline → เก็บไว้ใน pendingResets → relay ตอน register-camera รอบหน้า
+      pendingResets.add(deviceId);
+      socket.emit('factory-reset-ok', { deviceId, relayed: false });
+      console.log(`[factory-reset] ${deviceId.slice(0, 8)}… offline — queued (จะ relay ตอน online)`);
+      return;
+    }
+    io.to(cam.socketId).emit('factory-reset', { deviceId });
     socket.emit('factory-reset-ok', { deviceId, relayed: true });
     console.log(`[factory-reset] ${deviceId.slice(0, 8)}… relayed to camera + cleared server state`);
   });
