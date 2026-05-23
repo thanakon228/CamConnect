@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 import 'device_status.dart';
-import 'home_screen.dart';
 import 'live_view_screen.dart';
 import 'notif_event.dart';
 import 'notif_mirror_widget.dart';
-import 'pairing_storage.dart';
 import 'settings_screen.dart';
 import 'signaling_service.dart';
 import 'status_panel_widget.dart';
@@ -209,32 +207,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  Future<void> _confirmUnpair() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('เลิกจับคู่กับกล้องนี้?'),
-        content: const Text('หลังจากนี้ต้องใส่รหัสใหม่อีกครั้ง'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('ยกเลิก'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('เลิกจับคู่'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    await PairingStorage.clear();
-    if (!mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const HomeScreen()),
-      (_) => false,
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -273,10 +245,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _SectionTitle(icon: Icons.touch_app, text: 'ควบคุม'),
             const SizedBox(height: 8),
             _ActionGrid(
+              isOnline: isOnline,
               onViewCamera: _openLiveView,
               onSettings: _openSettings,
               onWake: _wakeCamera,
-              onUnpair: _confirmUnpair,
             ),
             const SizedBox(height: 24),
             _SectionTitle(
@@ -446,19 +418,38 @@ class _ErrorBox extends StatelessWidget {
 
 class _ActionGrid extends StatelessWidget {
   const _ActionGrid({
+    required this.isOnline,
     required this.onViewCamera,
     required this.onSettings,
     required this.onWake,
-    required this.onUnpair,
   });
 
+  /// online → "ดูกล้อง", offline → "ปลุกกล้อง" (เน้นต้องปลุกก่อน)
+  final bool isOnline;
   final VoidCallback onViewCamera;
   final VoidCallback onSettings;
   final VoidCallback onWake;
-  final VoidCallback onUnpair;
 
   @override
   Widget build(BuildContext context) {
+    // ปุ่มซ้าย: ขึ้นกับสถานะ
+    // online → ดูกล้อง (สีเขียว/teal)
+    // offline → ปลุกกล้อง (สีส้ม + เด่นกว่า เพราะต้องกดก่อน)
+    final primary = isOnline
+        ? _ActionButton(
+            icon: Icons.videocam,
+            label: 'ดูกล้อง',
+            color: Colors.teal,
+            onTap: onViewCamera,
+          )
+        : _ActionButton(
+            icon: Icons.notifications_active,
+            label: 'ปลุกกล้อง',
+            color: Colors.orange,
+            onTap: onWake,
+            emphasized: true,
+          );
+
     return GridView.count(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -467,29 +458,12 @@ class _ActionGrid extends StatelessWidget {
       crossAxisSpacing: 12,
       mainAxisSpacing: 12,
       children: [
-        _ActionButton(
-          icon: Icons.videocam,
-          label: 'ดูกล้อง',
-          color: Colors.teal,
-          onTap: onViewCamera,
-        ),
+        primary,
         _ActionButton(
           icon: Icons.settings,
           label: 'ตั้งค่า',
           color: Colors.indigo,
           onTap: onSettings,
-        ),
-        _ActionButton(
-          icon: Icons.notifications_active,
-          label: 'ปลุกกล้อง',
-          color: Colors.orange,
-          onTap: onWake,
-        ),
-        _ActionButton(
-          icon: Icons.link_off,
-          label: 'เลิกจับคู่',
-          color: Colors.red,
-          onTap: onUnpair,
         ),
       ],
     );
@@ -502,16 +476,20 @@ class _ActionButton extends StatelessWidget {
     required this.label,
     required this.color,
     required this.onTap,
+    this.emphasized = false,
   });
   final IconData icon;
   final String label;
   final Color color;
   final VoidCallback onTap;
 
+  /// true → ใช้สีพื้นเข้มกว่า (สำหรับปุ่มหลักที่ต้องการให้ user ทำก่อน)
+  final bool emphasized;
+
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: color.withOpacity(0.1),
+      color: emphasized ? color.withOpacity(0.22) : color.withOpacity(0.1),
       borderRadius: BorderRadius.circular(14),
       child: InkWell(
         onTap: onTap,

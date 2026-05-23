@@ -325,6 +325,36 @@ class SignalingService {
   void refreshUsageStats(String deviceId) =>
       _emitOrQueue('refresh-usage-stats', <String, dynamic>{'deviceId': deviceId});
 
+  /// ส่ง factory-reset ให้กล้อง — clear auto_streaming + restore UI + stop FGS
+  /// คืน relayed=true ถ้ากล้อง online และได้ event, false ถ้า camera offline
+  Future<bool> factoryResetCamera(String deviceId) {
+    final completer = Completer<bool>();
+
+    void okHandler(dynamic data) {
+      if (completer.isCompleted) return;
+      try {
+        final m = Map<String, dynamic>.from(data as Map);
+        completer.complete((m['relayed'] as bool?) ?? false);
+      } catch (_) {
+        completer.complete(false);
+      }
+    }
+
+    void errHandler(dynamic msg) {
+      if (!completer.isCompleted) completer.completeError(msg.toString());
+    }
+
+    _socket.once('factory-reset-ok', okHandler);
+    _socket.once('factory-reset-error', errHandler);
+
+    _emitOrQueue('factory-reset', <String, dynamic>{'deviceId': deviceId});
+
+    return completer.future.timeout(
+      const Duration(seconds: 10),
+      onTimeout: () => throw 'timeout',
+    );
+  }
+
   // ---- Stream controls (ใช้ใน LiveViewScreen ขณะกำลังสตรีม) ----
 
   /// สลับกล้องหน้า/หลังบนเครื่องลูก — broadcast ใน room ที่ join อยู่

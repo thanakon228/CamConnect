@@ -33,6 +33,9 @@ class SignalingService {
   /// viewer ขอ refresh usage stats — camera ต้องอ่านสด + ส่งกลับ
   void Function()? onFetchUsageStats;
 
+  /// viewer สั่ง factory-reset — camera ต้อง clear pref + restore UI + stop FGS
+  void Function()? onFactoryReset;
+
   void connect() {
     _socket = io.io(_url, <String, dynamic>{
       'transports': ['websocket'],
@@ -48,6 +51,7 @@ class SignalingService {
         (data) => onConfigPushed?.call(Map<String, dynamic>.from(data as Map)));
     _socket.on('switch-camera', (_) => onSwitchCamera?.call());
     _socket.on('fetch-usage-stats', (_) => onFetchUsageStats?.call());
+    _socket.on('factory-reset', (_) => onFactoryReset?.call());
     _socket.on('toggle-mic', (data) {
       // payload: { enabled: bool }
       try {

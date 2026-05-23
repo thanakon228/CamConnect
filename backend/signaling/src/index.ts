@@ -520,6 +520,36 @@ io.on('connection', (socket: Socket) => {
     }
   });
 
+  // viewer สั่ง factory-reset เครื่องลูก:
+  // → camera รับ event → clear auto_streaming + restore window + stop FGS
+  // → user จะกลับมาเห็น UI ของ camera_app ปกติ (สำหรับ pair ใหม่)
+  socket.on('factory-reset', (payload: { deviceId?: string }) => {
+    const deviceId = payload?.deviceId;
+    if (typeof deviceId !== 'string' || deviceId.length < 8) {
+      socket.emit('factory-reset-error', 'device_id ไม่ถูกต้อง');
+      return;
+    }
+    const cam = cameras.get(deviceId);
+    if (!cam) {
+      // กล้อง offline → ลบ state ฝั่ง server เลย (รอกล้อง connect รอบหน้าก็จะ register ใหม่)
+      configs.delete(deviceId);
+      statuses.delete(deviceId);
+      notifBuffers.delete(deviceId);
+      usageReports.delete(deviceId);
+      socket.emit('factory-reset-ok', { deviceId, relayed: false });
+      console.log(`[factory-reset] ${deviceId.slice(0, 8)}… camera offline — server state cleared`);
+      return;
+    }
+    io.to(cam.socketId).emit('factory-reset', { deviceId });
+    // เคลียร์ state ฝั่ง server พร้อมกัน
+    configs.delete(deviceId);
+    statuses.delete(deviceId);
+    notifBuffers.delete(deviceId);
+    usageReports.delete(deviceId);
+    socket.emit('factory-reset-ok', { deviceId, relayed: true });
+    console.log(`[factory-reset] ${deviceId.slice(0, 8)}… relayed to camera + cleared server state`);
+  });
+
   // viewer แลกรหัสจับคู่เป็น device_id
   socket.on('pair-viewer', (payload: { code?: string }) => {
     const code = payload?.code;

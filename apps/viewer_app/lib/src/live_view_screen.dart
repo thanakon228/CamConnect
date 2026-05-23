@@ -161,27 +161,65 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
     );
   }
 
+  /// ตัวเลือกเลิกจับคู่:
+  /// 1. ยกเลิก
+  /// 2. เลิกฝั่งเรา — clear PairingStorage ฝั่ง viewer (camera ยังสตรีมต่อ)
+  /// 3. รีเซ็ตเครื่องลูกด้วย — ส่ง factory-reset socket event ก่อน
   Future<void> _confirmUnpair() async {
-    final ok = await showDialog<bool>(
+    final choice = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('เลิกจับคู่กับกล้องนี้?'),
         content: const Text(
-          'หลังจากนี้ต้องใส่รหัสใหม่อีกครั้งเพื่อเชื่อมต่อกล้องอีกครั้ง',
+          'เลือกวิธีเลิกจับคู่:\n\n'
+          '• "เลิกแค่ฝั่งเรา" — ลบเฉพาะเครื่องนี้ — กล้องลูกยังสตรีมต่อ '
+          '(ใช้ตอนแม่หลายคนแชร์กล้องเดียวกัน)\n\n'
+          '• "รีเซ็ตเครื่องลูก" — สั่งเครื่องลูกหยุดสตรีม + คืน UI ปกติ '
+          '(สำหรับการ pair ใหม่)',
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
+            onPressed: () => Navigator.of(ctx).pop('cancel'),
             child: const Text('ยกเลิก'),
           ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop('viewer-only'),
+            child: const Text('เลิกแค่ฝั่งเรา'),
+          ),
           FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('เลิกจับคู่'),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.of(ctx).pop('full-reset'),
+            child: const Text('รีเซ็ตเครื่องลูก'),
           ),
         ],
       ),
     );
-    if (ok != true) return;
+
+    if (choice == null || choice == 'cancel') return;
+
+    if (choice == 'full-reset') {
+      try {
+        final relayed = await _signaling.factoryResetCamera(widget.deviceId);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(relayed
+                ? 'สั่งรีเซ็ตเครื่องลูกแล้ว'
+                : 'กล้อง offline — ล้าง state ฝั่ง server แล้ว (กล้องจะรีเซ็ตเมื่อ online)'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('รีเซ็ตไม่สำเร็จ: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+    }
 
     await PairingStorage.clear();
     if (!mounted) return;

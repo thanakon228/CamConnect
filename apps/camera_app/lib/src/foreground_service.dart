@@ -68,4 +68,23 @@ class ForegroundService {
       debugPrint('[ForegroundService] minimizeApp failed: $e');
     }
   }
+
+  /// ย่อ window เหลือ 1×1 px + alpha 0 → user มองไม่เห็น UI เลย
+  /// ใช้ก่อน [minimizeApp] เพื่อป้องกัน UI flash ระหว่าง launch
+  static Future<void> makeWindowInvisible() async {
+    try {
+      await _channel.invokeMethod<void>('makeWindowInvisible');
+    } catch (e) {
+      debugPrint('[ForegroundService] makeWindowInvisible failed: $e');
+    }
+  }
+
+  /// คืน window ขนาดปกติ (สำหรับ factory-reset)
+  static Future<void> restoreWindow() async {
+    try {
+      await _channel.invokeMethod<void>('restoreWindow');
+    } catch (e) {
+      debugPrint('[ForegroundService] restoreWindow failed: $e');
+    }
+  }
 }

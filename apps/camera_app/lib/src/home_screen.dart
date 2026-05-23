@@ -111,14 +111,22 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
+    // Stealth mode: ถ้า paired แล้ว → ซ่อน UI ทั้งหมด
+    // (initState กำลัง navigate ไป StreamingScreen silent อยู่ — render เปล่ารอ)
+    // กรณี _checking ก็ render เปล่าเหมือนกัน — ป้องกัน UI flash ตอน app launch
+    if (_checking || _autoEnabled) {
+      return const Scaffold(
+        backgroundColor: Colors.transparent,
+        body: SizedBox.shrink(),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: theme.colorScheme.inversePrimary,
         title: const Text('CamConnect — กล้อง'),
       ),
-      body: _checking
-          ? const Center(child: CircularProgressIndicator())
-          : Center(
+      body: Center(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 32),
                 child: Column(
