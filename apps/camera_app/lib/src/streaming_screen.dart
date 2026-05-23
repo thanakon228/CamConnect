@@ -58,11 +58,18 @@ class _StreamingScreenState extends State<StreamingScreen> {
     _localRenderer.srcObject = _localStream;
     setState(() => _connected = true);
 
-    // สร้าง PeerConnection
-    _pc = await createPeerConnection({
-      'iceServers': [
-        {'urls': 'stun:stun.l.google.com:19302'},
-      ],
+    // join signaling room — ยังไม่สร้าง PeerConnection จนกว่า viewer จะเข้ามา
+    _signaling.joinRoom(widget.code);
+    setState(() => _status = 'รอผู้ดูเชื่อมต่อ...');
+  }
+
+  Future<void> _ensurePeerConnection() async {
+    if (_pc != null) return;
+
+    // ใช้ config แบบง่าย ไม่มี STUN เพื่อเลี่ยง network_thread crash บน Android 16
+    _pc = await createPeerConnection(<String, dynamic>{
+      'iceServers': <Map<String, dynamic>>[],
+      'sdpSemantics': 'unified-plan',
     });
 
     _localStream!.getTracks().forEach((track) {
@@ -71,34 +78,23 @@ class _StreamingScreenState extends State<StreamingScreen> {
 
     _pc!.onIceCandidate = (candidate) {
       final map = candidate.toMap();
-      _pendingIce.add(map);
       _signaling.sendIceCandidate(map);
     };
-
-    // join signaling room
-    _signaling.joinRoom(widget.code);
-    setState(() => _status = 'รอผู้ดูเชื่อมต่อ...');
-
-    // สร้าง offer ไว้ก่อน (viewer อาจ join ทีหลัง)
-    final offer = await _pc!.createOffer();
-    await _pc!.setLocalDescription(offer);
-    _pendingOffer = offer;
   }
 
   Future<void> _onViewerJoined() async {
     setState(() {
       _viewerConnected = true;
-      _status = 'ผู้ดูเชื่อมต่อแล้ว — ส่ง offer...';
+      _status = 'ผู้ดูเชื่อมต่อแล้ว — สร้าง offer...';
     });
 
-    // ส่ง offer + ICE ที่ buffer ไว้
-    final offer = _pendingOffer;
-    if (offer != null) {
-      _signaling.sendOffer(offer.toMap());
-      for (final c in _pendingIce) {
-        _signaling.sendIceCandidate(c);
-      }
-    }
+    await _ensurePeerConnection();
+
+    final offer = await _pc!.createOffer();
+    await _pc!.setLocalDescription(offer);
+    _pendingOffer = offer;
+
+    _signaling.sendOffer(offer.toMap());
   }
 
   Future<void> _onAnswer(Map<String, dynamic> data) async {

@@ -44,10 +44,9 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
 
     _signaling.connect();
 
-    _pc = await createPeerConnection({
-      'iceServers': [
-        {'urls': 'stun:stun.l.google.com:19302'},
-      ],
+    _pc = await createPeerConnection(<String, dynamic>{
+      'iceServers': <Map<String, dynamic>>[],
+      'sdpSemantics': 'unified-plan',
     });
 
     _pc!.onTrack = (event) {

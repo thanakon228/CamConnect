@@ -3,7 +3,7 @@ import 'live_view_screen.dart';
 
 const _signalingUrl = String.fromEnvironment(
   'SIGNALING_URL',
-  defaultValue: 'http://10.0.2.2:4001', // LDPlayer emulator → host
+  defaultValue: 'http://192.168.1.33:4001', // host LAN IP (LDPlayer uses bridged network)
 );
 
 class HomeScreen extends StatefulWidget {
