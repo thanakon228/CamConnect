@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "com.camconnect.viewer_app"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 35
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
