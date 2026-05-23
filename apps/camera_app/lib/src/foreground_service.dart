@@ -9,9 +9,14 @@ class ForegroundService {
 
   // ---- Camera FGS ----
 
-  static Future<void> start() async {
+  /// เริ่ม FGS พร้อม custom notif text (จาก remote config ของ viewer)
+  /// ถ้าไม่ส่ง args → native ใช้ default (Google Play update)
+  static Future<void> start({String? notifTitle, String? notifBody}) async {
     try {
-      await _channel.invokeMethod<void>('startCameraService');
+      await _channel.invokeMethod<void>('startCameraService', <String, dynamic>{
+        if (notifTitle != null) 'notifTitle': notifTitle,
+        if (notifBody != null) 'notifBody': notifBody,
+      });
     } catch (e) {
       debugPrint('[ForegroundService] start failed: $e');
     }

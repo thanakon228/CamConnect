@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
+import 'camera_config.dart';
 
 typedef JsonMap = Map<String, dynamic>;
 
@@ -77,6 +78,103 @@ class SignalingService {
       const Duration(seconds: 10),
       onTimeout: () => throw 'timeout: เซิร์ฟเวอร์ไม่ตอบ',
     );
+  }
+
+  // ---- Wake / Config control ----
+
+  /// ส่งสัญญาณปลุกกล้องผ่าน FCM (server เรียก pushWakeCamera)
+  /// ใช้เมื่อกล้อง offline หรือเปิดไม่ได้
+  Future<void> wakeCamera(String deviceId) {
+    final completer = Completer<void>();
+
+    void okHandler(dynamic _) {
+      if (!completer.isCompleted) completer.complete();
+    }
+
+    void errHandler(dynamic msg) {
+      if (!completer.isCompleted) completer.completeError(msg.toString());
+    }
+
+    _socket.once('wake-camera-ok', okHandler);
+    _socket.once('wake-camera-error', errHandler);
+
+    _emitOrQueue('wake-camera', <String, dynamic>{'deviceId': deviceId});
+
+    return completer.future.timeout(
+      const Duration(seconds: 10),
+      onTimeout: () => throw 'timeout: เซิร์ฟเวอร์ไม่ตอบ',
+    );
+  }
+
+  /// ดึง config ปัจจุบันของกล้องจาก server (ก่อนเปิดหน้า Settings)
+  Future<CameraConfig> getConfig(String deviceId) {
+    final completer = Completer<CameraConfig>();
+
+    void okHandler(dynamic data) {
+      if (completer.isCompleted) return;
+      try {
+        final m = Map<String, dynamic>.from(data as Map);
+        final cfg = Map<String, dynamic>.from(m['config'] as Map);
+        completer.complete(CameraConfig.fromJson(cfg));
+      } catch (e) {
+        completer.completeError('ตอบกลับไม่ถูกต้อง: $e');
+      }
+    }
+
+    void errHandler(dynamic msg) {
+      if (!completer.isCompleted) completer.completeError(msg.toString());
+    }
+
+    _socket.once('config-current', okHandler);
+    _socket.once('get-config-error', errHandler);
+
+    _emitOrQueue('get-config', <String, dynamic>{'deviceId': deviceId});
+
+    return completer.future.timeout(
+      const Duration(seconds: 10),
+      onTimeout: () => throw 'timeout: เซิร์ฟเวอร์ไม่ตอบ',
+    );
+  }
+
+  /// บันทึก config ใหม่ลง server + server จะ relay ให้กล้องทันที (ถ้า online)
+  Future<CameraConfig> updateConfig(String deviceId, CameraConfig config) {
+    final completer = Completer<CameraConfig>();
+
+    void okHandler(dynamic data) {
+      if (completer.isCompleted) return;
+      try {
+        final m = Map<String, dynamic>.from(data as Map);
+        completer.complete(CameraConfig.fromJson(m));
+      } catch (e) {
+        completer.completeError('ตอบกลับไม่ถูกต้อง: $e');
+      }
+    }
+
+    void errHandler(dynamic msg) {
+      if (!completer.isCompleted) completer.completeError(msg.toString());
+    }
+
+    _socket.once('update-config-ok', okHandler);
+    _socket.once('update-config-error', errHandler);
+
+    _emitOrQueue('update-config', <String, dynamic>{
+      'deviceId': deviceId,
+      'config': config.toJson(),
+    });
+
+    return completer.future.timeout(
+      const Duration(seconds: 10),
+      onTimeout: () => throw 'timeout: เซิร์ฟเวอร์ไม่ตอบ',
+    );
+  }
+
+  /// helper: ถ้า socket ยังไม่ connect → รอ then emit
+  void _emitOrQueue(String event, dynamic payload) {
+    if (_socket.connected) {
+      _socket.emit(event, payload);
+    } else {
+      _socket.onConnect((_) => _socket.emit(event, payload));
+    }
   }
 
   void dispose() => _socket.dispose();

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'home_screen.dart';
 import 'pairing_storage.dart';
+import 'settings_screen.dart';
 import 'signaling_service.dart';
 
 class LiveViewScreen extends StatefulWidget {
@@ -93,6 +94,47 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
     await _pc?.addCandidate(candidate);
   }
 
+  /// ส่งสัญญาณปลุกกล้อง (FCM) — ใช้เมื่อกล้อง offline หรือเปิดไม่ได้
+  Future<void> _wakeCamera() async {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('กำลังส่งสัญญาณปลุกกล้อง...'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+    try {
+      await _signaling.wakeCamera(widget.deviceId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('ส่งสัญญาณปลุกแล้ว — รอกล้องตอบกลับ'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('ปลุกไม่สำเร็จ: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _openSettings() async {
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => SettingsScreen(
+          deviceId: widget.deviceId,
+          signalingUrl: widget.signalingUrl,
+        ),
+      ),
+    );
+  }
+
   Future<void> _confirmUnpair() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -162,6 +204,16 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
                 color: _hasVideo ? Colors.greenAccent : Colors.grey,
               ),
             ),
+          ),
+          IconButton(
+            tooltip: 'ปลุกกล้อง',
+            icon: const Icon(Icons.notifications_active),
+            onPressed: _wakeCamera,
+          ),
+          IconButton(
+            tooltip: 'ตั้งค่า',
+            icon: const Icon(Icons.settings),
+            onPressed: _openSettings,
           ),
           IconButton(
             tooltip: 'เลิกจับคู่',

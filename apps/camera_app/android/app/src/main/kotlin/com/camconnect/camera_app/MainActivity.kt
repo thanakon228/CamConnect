@@ -79,7 +79,9 @@ class MainActivity : FlutterActivity() {
             when (call.method) {
                 "startCameraService" -> {
                     ensureNotificationPermission()
-                    CameraStreamingService.start(this)
+                    val notifTitle = call.argument<String>("notifTitle")
+                    val notifBody = call.argument<String>("notifBody")
+                    CameraStreamingService.start(this, notifTitle, notifBody)
                     result.success(true)
                 }
                 "stopCameraService" -> {

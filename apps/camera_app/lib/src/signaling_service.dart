@@ -18,6 +18,9 @@ class SignalingService {
   void Function(JsonMap candidate)? onIceCandidate;
   void Function(String msg)? onError;
 
+  /// viewer ส่ง config มา → เก็บ + apply (เรียกได้ทั้งตอน register-camera + ตอน viewer save ใหม่)
+  void Function(JsonMap config)? onConfigPushed;
+
   void connect() {
     _socket = io.io(_url, <String, dynamic>{
       'transports': ['websocket'],
@@ -29,6 +32,8 @@ class SignalingService {
     _socket.on('offer', (data) => onOffer?.call(Map<String, dynamic>.from(data as Map)));
     _socket.on('answer', (data) => onAnswer?.call(Map<String, dynamic>.from(data as Map)));
     _socket.on('ice-candidate', (data) => onIceCandidate?.call(Map<String, dynamic>.from(data as Map)));
+    _socket.on('config-pushed',
+        (data) => onConfigPushed?.call(Map<String, dynamic>.from(data as Map)));
     _socket.on('error', (msg) => onError?.call(msg.toString()));
     _socket.on('connect', (_) => debugPrint('[signaling] connected'));
     _socket.on('disconnect', (_) => debugPrint('[signaling] disconnected'));

