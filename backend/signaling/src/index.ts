@@ -96,22 +96,17 @@ async function pushWakeCamera(deviceId: string): Promise<void> {
   try {
     await admin.messaging().send({
       token,
-      // notification + data → Android แสดง heads-up notification + tap → เปิด app
-      notification: {
+      // data-only → MessagingService รับเสมอ → manual post notification
+      // (รูปแบบนี้ทำงานสม่ำเสมอใน foreground/background/killed scenarios)
+      data: {
+        action: 'wake-camera',
+        deviceId,
         title: 'เครื่องแม่ขอเปิดกล้อง',
         body: 'แตะเพื่ออนุญาตเปิดกล้องและเริ่มสตรีม',
       },
-      data: { action: 'wake-camera', deviceId },
       android: {
         priority: 'high',
         ttl: 30_000,
-        notification: {
-          channelId: 'camconnect_wake_request',
-          sound: 'default',
-          defaultVibrateTimings: true,
-          // visibility=public → แสดงบน lock screen
-          visibility: 'public',
-        },
       },
     });
     console.log(`[fcm] sent wake push to ${deviceId.slice(0, 8)}…`);
