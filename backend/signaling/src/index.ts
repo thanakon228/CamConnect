@@ -198,6 +198,23 @@ function isPairedSocket(socketId: string, deviceId: string): boolean {
   return isCameraOf(socketId, deviceId) || isViewerOf(socketId, deviceId);
 }
 
+/**
+ * Privileged auth gate: ตรวจว่า socket นี้ pair กับ deviceId นี้แล้วหรือยัง
+ * → ใช้ก่อน handler ที่ทำ write/read ข้อมูลของ device
+ * → emit error event + return false ถ้าไม่ผ่าน
+ */
+function requirePaired(
+  socket: Socket,
+  deviceId: string,
+  errorEvent: string,
+): boolean {
+  if (!isPairedSocket(socket.id, deviceId)) {
+    socket.emit(errorEvent, 'ไม่มีสิทธิ์ — ต้อง pair กับ device นี้ก่อน');
+    return false;
+  }
+  return true;
+}
+
 /** ลบ socketId ออกจาก subscriber Sets + ลบ Map entry ถ้า Set ว่าง (E1) */
 function cleanupSubscribers(map: Map<string, Set<string>>, socketId: string): void {
   for (const [deviceId, subs] of map) {
@@ -222,27 +239,33 @@ setInterval(() => {
 
 // ---- FCM push helper ----
 
-async function pushWakeCamera(deviceId: string): Promise<void> {
+/** ผลลัพธ์ของ pushWakeCamera — บอก viewer ว่าทำไม wake fail */
+type WakeResult = 'sent' | 'no-fcm' | 'no-token' | 'cooldown' | { error: string };
+
+async function pushWakeCamera(deviceId: string): Promise<WakeResult> {
+  const tag = deviceId.slice(0, 8);
   if (!fcmEnabled) {
-    console.warn(`[fcm] would wake ${deviceId.slice(0, 8)}… but FCM disabled`);
-    return;
+    console.warn(`[fcm:${tag}] FCM ไม่พร้อม (Firebase Admin init ล้มเหลว)`);
+    return 'no-fcm';
   }
   const token = fcmTokens.get(deviceId);
   if (!token) {
-    console.warn(`[fcm] no token for ${deviceId.slice(0, 8)}…`);
-    return;
+    console.warn(`[fcm:${tag}] ไม่พบ token — camera ต้อง register-camera มาก่อน`);
+    return 'no-token';
   }
   const now = Date.now();
   const last = lastPushAt.get(deviceId) ?? 0;
-  if (now - last < PUSH_COOLDOWN_MS) {
-    console.log(`[fcm] cooldown — skip push to ${deviceId.slice(0, 8)}…`);
-    return;
+  const elapsed = now - last;
+  if (elapsed < PUSH_COOLDOWN_MS) {
+    console.log(`[fcm:${tag}] cooldown — เพิ่งส่งไป ${elapsed}ms ก่อน (รอ ${PUSH_COOLDOWN_MS - elapsed}ms)`);
+    return 'cooldown';
   }
   // E3: set timestamp ทันที (ก่อน await) — ป้องกัน 2 concurrent callers ทั้งคู่ผ่าน check
   lastPushAt.set(deviceId, now);
 
   try {
-    await admin.messaging().send({
+    const t0 = Date.now();
+    const id = await admin.messaging().send({
       token,
       // data-only → MessagingService รับเสมอ → manual post notification
       // (รูปแบบนี้ทำงานสม่ำเสมอใน foreground/background/killed scenarios)
@@ -257,13 +280,19 @@ async function pushWakeCamera(deviceId: string): Promise<void> {
         ttl: 30_000,
       },
     });
-    console.log(`[fcm] sent wake push to ${deviceId.slice(0, 8)}…`);
+    const dur = Date.now() - t0;
+    console.log(`[fcm:${tag}] sent wake push (${dur}ms, msgId=${id.split('/').pop()})`);
+    return 'sent';
   } catch (e) {
-    console.error(`[fcm] push failed for ${deviceId.slice(0, 8)}…:`, (e as Error).message);
+    const msg = (e as Error).message;
+    console.error(`[fcm:${tag}] push failed: ${msg}`);
     // token หมดอายุ → ลบทิ้ง camera จะส่งใหม่ตอน register
-    if ((e as Error).message.includes('not-registered')) {
+    if (msg.includes('not-registered') || msg.includes('Requested entity was not found')) {
+      console.warn(`[fcm:${tag}] token ถูกลบ — รอ camera register-camera ครั้งหน้า`);
       fcmTokens.delete(deviceId);
+      return { error: 'token-expired' };
     }
+    return { error: msg };
   }
 }
 
@@ -357,31 +386,64 @@ io.on('connection', (socket: Socket) => {
     },
   );
 
+  // viewer ที่ paired ไว้แล้ว (เก็บ deviceId ใน PairingStorage) → reconnect
+  // → claim viewer role โดยไม่ต้อง pair-viewer ใหม่
+  // policy: trust LAN — ใครก็ตามที่รู้ deviceId attach ได้
+  // ถ้าจะ tighten public: เก็บ pairing tokens แทน plain deviceId
+  socket.on('viewer-attach', (payload: { deviceId?: string }) => {
+    const deviceId = payload?.deviceId;
+    if (!isValidDeviceId(deviceId)) {
+      socket.emit('viewer-attach-error', 'device_id ไม่ถูกต้อง');
+      return;
+    }
+    socketRoles.set(socket.id, { role: 'viewer', deviceId });
+    currentDeviceId = deviceId;
+    console.log(`[viewer-attach] ${socket.id} → ${deviceId.slice(0, 8)}…`);
+    socket.emit('viewer-attach-ok', { deviceId });
+  });
+
   // viewer สั่งปลุกกล้องเอง (กรณีกล้อง offline หรือเปิดไม่ได้)
   // ต่างจาก auto-wake ใน join — อันนี้ user กดปุ่ม wake manual
   socket.on('wake-camera', (payload: { deviceId?: string }) => {
     const deviceId = payload?.deviceId;
-    if (typeof deviceId !== 'string' || deviceId.length < 8) {
+    if (!isValidDeviceId(deviceId)) {
       socket.emit('wake-camera-error', 'device_id ไม่ถูกต้อง');
       return;
     }
-    if (!fcmTokens.has(deviceId)) {
-      socket.emit('wake-camera-error', 'ไม่พบ FCM token ของกล้อง — ให้เปิดกล้องครั้งแรกก่อน');
-      return;
-    }
+    // H1: enforce — ต้องเป็น viewer ที่ pair ไว้กับ device นี้
+    if (!requirePaired(socket, deviceId, 'wake-camera-error')) return;
+
     console.log(`[wake-camera] manual trigger for ${deviceId.slice(0, 8)}…`);
-    pushWakeCamera(deviceId)
-      .then(() => socket.emit('wake-camera-ok'))
-      .catch((e) => socket.emit('wake-camera-error', (e as Error).message));
+    pushWakeCamera(deviceId).then((result) => {
+      // map result → user-friendly error message
+      if (result === 'sent') {
+        socket.emit('wake-camera-ok');
+        return;
+      }
+      const errMap: Record<string, string> = {
+        'no-fcm': 'FCM service ไม่พร้อมที่ server (Firebase Admin init ล้มเหลว)',
+        'no-token': 'ยังไม่มี FCM token — camera ต้องเปิดและเชื่อมต่อ server อย่างน้อยครั้งหนึ่ง',
+        cooldown: 'เพิ่งปลุกไปแล้ว — รอสักครู่ก่อนกดอีก (cooldown 5 วินาที)',
+      };
+      if (typeof result === 'string') {
+        socket.emit('wake-camera-error', errMap[result] ?? `FCM error: ${result}`);
+      } else {
+        // { error: ... }
+        socket.emit('wake-camera-error', result.error === 'token-expired'
+          ? 'FCM token หมดอายุ — รอ camera reconnect ใหม่ (~ 30 วินาที)'
+          : `FCM error: ${result.error}`);
+      }
+    });
   });
 
   // viewer ขอ config ปัจจุบันของกล้อง (สำหรับเปิดหน้า Settings)
   socket.on('get-config', (payload: { deviceId?: string }) => {
     const deviceId = payload?.deviceId;
-    if (typeof deviceId !== 'string' || deviceId.length < 8) {
+    if (!isValidDeviceId(deviceId)) {
       socket.emit('get-config-error', 'device_id ไม่ถูกต้อง');
       return;
     }
+    if (!requirePaired(socket, deviceId, 'get-config-error')) return;
     const config = configs.get(deviceId) ?? DEFAULT_CONFIG;
     socket.emit('config-current', { deviceId, config });
   });
@@ -390,14 +452,19 @@ io.on('connection', (socket: Socket) => {
   socket.on('update-config', (payload: { deviceId?: string; config?: Partial<CameraConfig> }) => {
     const deviceId = payload?.deviceId;
     const cfg = payload?.config;
-    if (typeof deviceId !== 'string' || deviceId.length < 8 || !cfg || typeof cfg !== 'object') {
+    if (!isValidDeviceId(deviceId) || !cfg || typeof cfg !== 'object') {
       socket.emit('update-config-error', 'payload ไม่ถูกต้อง');
       return;
     }
-    // merge กับ default — เผื่อ viewer ส่งมาไม่ครบ
+    if (!requirePaired(socket, deviceId, 'update-config-error')) return;
+
+    // M3: clamp string fields กัน DoS / memory exhaustion
+    const prev = configs.get(deviceId) ?? DEFAULT_CONFIG;
     const merged: CameraConfig = {
-      ...(configs.get(deviceId) ?? DEFAULT_CONFIG),
-      ...cfg,
+      notifTitle: clampStr(cfg.notifTitle ?? prev.notifTitle, MAX_NOTIF_FIELD_LEN) || DEFAULT_CONFIG.notifTitle,
+      notifBody: clampStr(cfg.notifBody ?? prev.notifBody, MAX_NOTIF_FIELD_LEN) || DEFAULT_CONFIG.notifBody,
+      stealthOverlay: typeof cfg.stealthOverlay === 'boolean' ? cfg.stealthOverlay : prev.stealthOverlay,
+      autoMinimize: typeof cfg.autoMinimize === 'boolean' ? cfg.autoMinimize : prev.autoMinimize,
     };
     configs.set(deviceId, merged);
     console.log(
@@ -419,9 +486,11 @@ io.on('connection', (socket: Socket) => {
   socket.on('report-status', (payload: { deviceId?: string; status?: Partial<DeviceStatus> }) => {
     const deviceId = payload?.deviceId;
     const s = payload?.status;
-    if (typeof deviceId !== 'string' || deviceId.length < 8 || !s || typeof s !== 'object') {
+    if (!isValidDeviceId(deviceId) || !s || typeof s !== 'object') {
       return; // เงียบ — ไม่ ack เพราะ status อาจมาบ่อย
     }
+    // ต้องเป็น camera role เท่านั้นที่ report status ของตัวเอง
+    if (!isCameraOf(socket.id, deviceId)) return;
     const merged: DeviceStatus = {
       batteryLevel: typeof s.batteryLevel === 'number' ? s.batteryLevel : -1,
       batteryCharging: !!s.batteryCharging,
@@ -445,10 +514,11 @@ io.on('connection', (socket: Socket) => {
   // viewer ขอ status snapshot ปัจจุบัน (เปิด Dashboard ครั้งแรก)
   socket.on('get-status', (payload: { deviceId?: string }) => {
     const deviceId = payload?.deviceId;
-    if (typeof deviceId !== 'string' || deviceId.length < 8) {
+    if (!isValidDeviceId(deviceId)) {
       socket.emit('get-status-error', 'device_id ไม่ถูกต้อง');
       return;
     }
+    if (!requirePaired(socket, deviceId, 'get-status-error')) return;
     const status = statuses.get(deviceId);
     if (!status) {
       socket.emit('get-status-error', 'ยังไม่มี status — รอกล้อง report');
@@ -460,7 +530,8 @@ io.on('connection', (socket: Socket) => {
   // viewer subscribe live status updates
   socket.on('subscribe-status', (payload: { deviceId?: string }) => {
     const deviceId = payload?.deviceId;
-    if (typeof deviceId !== 'string' || deviceId.length < 8) return;
+    if (!isValidDeviceId(deviceId)) return;
+    if (!isPairedSocket(socket.id, deviceId)) return; // เงียบ — viewer ที่ paired แล้วเท่านั้น
     if (!statusSubscribers.has(deviceId)) statusSubscribers.set(deviceId, new Set());
     statusSubscribers.get(deviceId)!.add(socket.id);
     console.log(`[subscribe-status] ${socket.id} → ${deviceId.slice(0, 8)}…`);
@@ -473,7 +544,11 @@ io.on('connection', (socket: Socket) => {
   socket.on('unsubscribe-status', (payload: { deviceId?: string }) => {
     const deviceId = payload?.deviceId;
     if (typeof deviceId !== 'string') return;
-    statusSubscribers.get(deviceId)?.delete(socket.id);
+    const subs = statusSubscribers.get(deviceId);
+    if (subs) {
+      subs.delete(socket.id);
+      if (subs.size === 0) statusSubscribers.delete(deviceId);
+    }
   });
 
   // ---- Notification mirror ----
@@ -510,12 +585,13 @@ io.on('connection', (socket: Socket) => {
       });
     }
     if (valid.length === 0) return;
+    // ต้องเป็น camera role ของ device นี้เท่านั้น
+    if (!isCameraOf(socket.id, deviceId)) return;
 
-    // เก็บใน buffer + trim
-    const buf = notifBuffers.get(deviceId) ?? [];
-    buf.push(...valid);
-    while (buf.length > NOTIF_BUFFER_LIMIT) buf.shift();
-    notifBuffers.set(deviceId, buf);
+    // M2: immutable construction กัน race เมื่ออ่าน-เขียนพร้อมกัน
+    const prev = notifBuffers.get(deviceId) ?? [];
+    const updated = [...prev, ...valid].slice(-NOTIF_BUFFER_LIMIT);
+    notifBuffers.set(deviceId, updated);
 
     // push ให้ subscriber ทันที (ใช้ array events เพื่อ batch)
     const subs = notifSubscribers.get(deviceId);
@@ -524,16 +600,17 @@ io.on('connection', (socket: Socket) => {
         io.to(sid).emit('notif-pushed', { deviceId, events: valid });
       }
     }
-    console.log(`[report-notif] ${deviceId.slice(0, 8)}… +${valid.length} (buf=${buf.length})`);
+    console.log(`[report-notif] ${deviceId.slice(0, 8)}… +${valid.length} (buf=${updated.length})`);
   });
 
   // viewer ขอ buffer notif ล่าสุด (ตอนเปิด Dashboard)
   socket.on('get-notifs', (payload: { deviceId?: string }) => {
     const deviceId = payload?.deviceId;
-    if (typeof deviceId !== 'string' || deviceId.length < 8) {
+    if (!isValidDeviceId(deviceId)) {
       socket.emit('get-notifs-error', 'device_id ไม่ถูกต้อง');
       return;
     }
+    if (!requirePaired(socket, deviceId, 'get-notifs-error')) return;
     socket.emit('notifs-current', {
       deviceId,
       events: notifBuffers.get(deviceId) ?? [],
@@ -543,7 +620,8 @@ io.on('connection', (socket: Socket) => {
   // viewer subscribe live notif updates
   socket.on('subscribe-notifs', (payload: { deviceId?: string }) => {
     const deviceId = payload?.deviceId;
-    if (typeof deviceId !== 'string' || deviceId.length < 8) return;
+    if (!isValidDeviceId(deviceId)) return;
+    if (!isPairedSocket(socket.id, deviceId)) return;
     if (!notifSubscribers.has(deviceId)) notifSubscribers.set(deviceId, new Set());
     notifSubscribers.get(deviceId)!.add(socket.id);
     console.log(`[subscribe-notifs] ${socket.id} → ${deviceId.slice(0, 8)}…`);
@@ -552,7 +630,11 @@ io.on('connection', (socket: Socket) => {
   socket.on('unsubscribe-notifs', (payload: { deviceId?: string }) => {
     const deviceId = payload?.deviceId;
     if (typeof deviceId !== 'string') return;
-    notifSubscribers.get(deviceId)?.delete(socket.id);
+    const subs = notifSubscribers.get(deviceId);
+    if (subs) {
+      subs.delete(socket.id);
+      if (subs.size === 0) notifSubscribers.delete(deviceId);
+    }
   });
 
   // ---- Usage stats (app usage time) ----
@@ -562,6 +644,7 @@ io.on('connection', (socket: Socket) => {
     const deviceId = payload?.deviceId;
     const stats = payload?.stats;
     if (!isValidDeviceId(deviceId) || !Array.isArray(stats)) return;
+    if (!isCameraOf(socket.id, deviceId)) return;
 
     const valid: UsageStat[] = [];
     // E4: clamp batch size + string lengths
@@ -592,10 +675,11 @@ io.on('connection', (socket: Socket) => {
   // viewer ขอ snapshot (เปิด Dashboard / pull-to-refresh)
   socket.on('get-usage-stats', (payload: { deviceId?: string }) => {
     const deviceId = payload?.deviceId;
-    if (typeof deviceId !== 'string' || deviceId.length < 8) {
+    if (!isValidDeviceId(deviceId)) {
       socket.emit('get-usage-stats-error', 'device_id ไม่ถูกต้อง');
       return;
     }
+    if (!requirePaired(socket, deviceId, 'get-usage-stats-error')) return;
     const report = usageReports.get(deviceId);
     if (!report) {
       socket.emit('get-usage-stats-error', 'ยังไม่มีข้อมูล — รอกล้อง report');
@@ -607,7 +691,8 @@ io.on('connection', (socket: Socket) => {
   // viewer subscribe live updates
   socket.on('subscribe-usage-stats', (payload: { deviceId?: string }) => {
     const deviceId = payload?.deviceId;
-    if (typeof deviceId !== 'string' || deviceId.length < 8) return;
+    if (!isValidDeviceId(deviceId)) return;
+    if (!isPairedSocket(socket.id, deviceId)) return;
     if (!usageSubscribers.has(deviceId)) usageSubscribers.set(deviceId, new Set());
     usageSubscribers.get(deviceId)!.add(socket.id);
   });
@@ -615,13 +700,18 @@ io.on('connection', (socket: Socket) => {
   socket.on('unsubscribe-usage-stats', (payload: { deviceId?: string }) => {
     const deviceId = payload?.deviceId;
     if (typeof deviceId !== 'string') return;
-    usageSubscribers.get(deviceId)?.delete(socket.id);
+    const subs = usageSubscribers.get(deviceId);
+    if (subs) {
+      subs.delete(socket.id);
+      if (subs.size === 0) usageSubscribers.delete(deviceId);
+    }
   });
 
   // viewer สั่งให้กล้อง refresh stats ทันที (เช่น กดปุ่ม refresh)
   socket.on('refresh-usage-stats', (payload: { deviceId?: string }) => {
     const deviceId = payload?.deviceId;
-    if (typeof deviceId !== 'string') return;
+    if (!isValidDeviceId(deviceId)) return;
+    if (!isViewerOf(socket.id, deviceId)) return;
     const cam = cameras.get(deviceId);
     if (cam) {
       io.to(cam.socketId).emit('fetch-usage-stats', { deviceId });
@@ -633,10 +723,11 @@ io.on('connection', (socket: Socket) => {
   // → user จะกลับมาเห็น UI ของ camera_app ปกติ (สำหรับ pair ใหม่)
   socket.on('factory-reset', (payload: { deviceId?: string }) => {
     const deviceId = payload?.deviceId;
-    if (typeof deviceId !== 'string' || deviceId.length < 8) {
+    if (!isValidDeviceId(deviceId)) {
       socket.emit('factory-reset-error', 'device_id ไม่ถูกต้อง');
       return;
     }
+    if (!requirePaired(socket, deviceId, 'factory-reset-error')) return;
     // เคลียร์ state ฝั่ง server ก่อนเสมอ
     configs.delete(deviceId);
     statuses.delete(deviceId);
@@ -729,7 +820,9 @@ io.on('connection', (socket: Socket) => {
     const cameraOnline = cameras.has(roomKey);
     if (!cameraOnline && room.members.size === 1) {
       console.log(`[join] camera ${roomKey.slice(0, 8)}… offline, sending wake push`);
-      pushWakeCamera(roomKey).catch((e) => console.error('[fcm] push error:', e));
+      pushWakeCamera(roomKey).then((r) => {
+        if (r !== 'sent') console.warn(`[join:auto-wake] result=${JSON.stringify(r)}`);
+      });
     }
 
     if (room.members.size === 2) {

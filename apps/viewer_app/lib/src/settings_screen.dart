@@ -36,6 +36,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _signaling = SignalingService(widget.signalingUrl);
     _signaling.connect();
+    // attach role ก่อน fetch — server enforces ผ่าน get-config/update-config
+    _signaling.attachAsViewer(widget.deviceId);
     _fetch();
   }
 

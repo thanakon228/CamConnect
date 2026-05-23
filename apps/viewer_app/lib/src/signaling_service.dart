@@ -82,6 +82,13 @@ class SignalingService {
   void sendAnswer(JsonMap answer) => _socket.emit('answer', answer);
   void sendIceCandidate(JsonMap candidate) => _socket.emit('ice-candidate', candidate);
 
+  /// viewer ที่ paired ไว้แล้ว (เก็บ deviceId ใน PairingStorage) → claim role
+  /// เรียกหลัง connect() ทันทีเพื่อให้ subscribe-* + wake-camera + factory-reset
+  /// ผ่าน auth check ของ server (privileged events ต้องการ socket role)
+  void attachAsViewer(String deviceId) {
+    _emitOrQueue('viewer-attach', <String, dynamic>{'deviceId': deviceId});
+  }
+
   /// แลก pair code 6 หลัก → device_id (one-shot request/response)
   /// คืนค่า device_id ถ้าสำเร็จ หรือ throw String error
   Future<String> pairViewer(String code) {

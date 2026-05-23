@@ -55,14 +55,16 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
       setState(() => _status = 'ข้อผิดพลาด: $msg');
     };
 
-    // socket reconnect → re-join room (server ลบ membership ตอน disconnect)
+    // socket reconnect → re-attach role + re-join room
     _signaling.onReconnect = () {
       if (!mounted) return;
-      debugPrint('[live-view] reconnected — re-joining room');
+      debugPrint('[live-view] reconnected — re-attaching + re-joining');
+      _signaling.attachAsViewer(widget.deviceId);
       _signaling.joinRoom(widget.deviceId);
     };
 
     _signaling.connect();
+    _signaling.attachAsViewer(widget.deviceId);
 
     _pc = await createPeerConnection(<String, dynamic>{
       'iceServers': <Map<String, dynamic>>[],

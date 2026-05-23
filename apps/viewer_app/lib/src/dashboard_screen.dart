@@ -69,16 +69,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
       setState(() => _usage = report);
     };
 
-    // เมื่อ socket reconnect → server ลบ subscribers ของเราไปแล้ว → ต้อง subscribe ใหม่
+    // เมื่อ socket reconnect → server ลบ subscribers + role ของเราไปแล้ว
+    // → ต้อง attach + subscribe ใหม่
     _signaling.onReconnect = () {
       if (!mounted) return;
-      debugPrint('[dashboard] reconnected — re-subscribing');
+      debugPrint('[dashboard] reconnected — re-attaching + re-subscribing');
+      _signaling.attachAsViewer(widget.deviceId);
       _signaling.subscribeStatus(widget.deviceId);
       _signaling.subscribeNotifs(widget.deviceId);
       _signaling.subscribeUsageStats(widget.deviceId);
     };
 
     _signaling.connect();
+    // เริ่มจาก attach role (server เช็คก่อน subscribe/wake/factory-reset)
+    _signaling.attachAsViewer(widget.deviceId);
     _signaling.subscribeStatus(widget.deviceId);
     _signaling.subscribeNotifs(widget.deviceId);
     _signaling.subscribeUsageStats(widget.deviceId);
@@ -205,8 +209,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('ส่งสัญญาณปลุกแล้ว'),
+          content: Text('ส่งสัญญาณปลุกแล้ว — รอกล้องตอบกลับ ~5-15 วินาที'),
           backgroundColor: Colors.green,
+          duration: Duration(seconds: 4),
         ),
       );
     } catch (e) {
