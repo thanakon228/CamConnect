@@ -12,6 +12,11 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 /// อ่าน FCM token + setup foreground handlers
 class FcmService {
+  /// callback เรียกเมื่อ Firebase rotate token (เช่น 270 วัน, app restore, reinstall)
+  /// → ตั้งจาก streaming_screen เพื่อ re-emit register-camera กับ token ใหม่
+  /// → ป้องกัน wake-camera fail เพราะ server cache token หมดอายุ
+  static void Function(String newToken)? onTokenRefresh;
+
   static Future<String?> getToken() async {
     try {
       // ขอ permission notification (Android 13+ จะมี dialog)
@@ -29,6 +34,14 @@ class FcmService {
     // ตอน app foreground ก็รับ message ได้ — สำหรับ debug
     FirebaseMessaging.onMessage.listen((message) {
       debugPrint('[fcm] foreground message: ${message.data}');
+    });
+
+    // Token refresh: Firebase อาจ rotate token ทุก ~270 วัน หรือตอน
+    // app restore from backup / clear data / Google Play Services update
+    // → เรียก callback ให้ caller (streaming_screen) re-register กับ server
+    FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
+      debugPrint('[fcm] token refreshed: ${newToken.substring(0, 20)}…');
+      onTokenRefresh?.call(newToken);
     });
   }
 }

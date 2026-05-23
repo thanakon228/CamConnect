@@ -37,6 +37,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // usage stats — snapshot 24h (camera report ทุก 10 นาที)
   UsageReport? _usage;
 
+  // FB: disable wake button 2 วินาทีหลังกด — match cooldown ฝั่ง server
+  bool _waking = false;
+
   @override
   void initState() {
     super.initState();
@@ -197,6 +200,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _wakeCamera() async {
+    if (_waking) return; // FB: กัน double-tap ฝั่ง client
+    setState(() => _waking = true);
+    // auto-clear ปุ่ม disable หลัง 2 วินาที (match server cooldown)
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _waking = false);
+    });
+
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('กำลังส่งสัญญาณปลุกกล้อง...'),
@@ -262,6 +272,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             const SizedBox(height: 8),
             _ActionGrid(
               isOnline: isOnline,
+              waking: _waking,
               onViewCamera: _openLiveView,
               onSettings: _openSettings,
               onWake: _wakeCamera,
@@ -435,6 +446,7 @@ class _ErrorBox extends StatelessWidget {
 class _ActionGrid extends StatelessWidget {
   const _ActionGrid({
     required this.isOnline,
+    required this.waking,
     required this.onViewCamera,
     required this.onSettings,
     required this.onWake,
@@ -442,6 +454,8 @@ class _ActionGrid extends StatelessWidget {
 
   /// online → "ดูกล้อง", offline → "ปลุกกล้อง" (เน้นต้องปลุกก่อน)
   final bool isOnline;
+  /// FB: true เมื่อเพิ่งกดปลุก — disable ปุ่ม 2 วินาที match server cooldown
+  final bool waking;
   final VoidCallback onViewCamera;
   final VoidCallback onSettings;
   final VoidCallback onWake;
@@ -459,10 +473,10 @@ class _ActionGrid extends StatelessWidget {
             onTap: onViewCamera,
           )
         : _ActionButton(
-            icon: Icons.notifications_active,
-            label: 'ปลุกกล้อง',
+            icon: waking ? Icons.hourglass_bottom : Icons.notifications_active,
+            label: waking ? 'กำลังส่งสัญญาณ…' : 'ปลุกกล้อง',
             color: Colors.orange,
-            onTap: onWake,
+            onTap: waking ? null : onWake,
             emphasized: true,
           );
 
@@ -497,7 +511,8 @@ class _ActionButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final Color color;
-  final VoidCallback onTap;
+  /// null = ปุ่มถูก disable (สีจาง + กดไม่ได้)
+  final VoidCallback? onTap;
 
   /// true → ใช้สีพื้นเข้มกว่า (สำหรับปุ่มหลักที่ต้องการให้ user ทำก่อน)
   final bool emphasized;

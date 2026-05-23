@@ -225,7 +225,7 @@ function cleanupSubscribers(map: Map<string, Set<string>>, socketId: string): vo
 
 // กัน spam push: device_id → timestamp ล่าสุดที่ส่ง
 const lastPushAt = new Map<string, number>();
-const PUSH_COOLDOWN_MS = 5_000; // ห้ามส่ง push ซ้ำใน 5 วินาที
+const PUSH_COOLDOWN_MS = 2_000; // ห้ามส่ง push ซ้ำใน 2 วินาที (พอกัน duplicate, friendly กับ user)
 
 // ลบ pair code ที่หมดอายุทุก 2 นาที
 setInterval(() => {
@@ -423,7 +423,7 @@ io.on('connection', (socket: Socket) => {
       const errMap: Record<string, string> = {
         'no-fcm': 'FCM service ไม่พร้อมที่ server (Firebase Admin init ล้มเหลว)',
         'no-token': 'ยังไม่มี FCM token — camera ต้องเปิดและเชื่อมต่อ server อย่างน้อยครั้งหนึ่ง',
-        cooldown: 'เพิ่งปลุกไปแล้ว — รอสักครู่ก่อนกดอีก (cooldown 5 วินาที)',
+        cooldown: 'เพิ่งปลุกไปแล้ว — รอ 2 วินาทีก่อนกดอีก',
       };
       if (typeof result === 'string') {
         socket.emit('wake-camera-error', errMap[result] ?? `FCM error: ${result}`);

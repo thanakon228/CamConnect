@@ -109,6 +109,18 @@ class _StreamingScreenState extends State<StreamingScreen> {
     final deviceId = await DeviceIdStore.getOrCreate();
     _deviceId = deviceId;
     final fcmToken = await FcmService.getToken();
+
+    // FA: Firebase rotate token → re-register ทันที ไม่ต้องรอ camera restart
+    // ป้องกัน wake fail เพราะ server cache token เก่า
+    FcmService.onTokenRefresh = (newToken) {
+      debugPrint('[streaming] FCM token rotated → re-registering');
+      _signaling.registerCamera(
+        deviceId: deviceId,
+        code: widget.code,
+        fcmToken: newToken,
+      );
+    };
+
     _signaling.registerCamera(
       deviceId: deviceId,
       code: widget.code,
@@ -341,6 +353,7 @@ class _StreamingScreenState extends State<StreamingScreen> {
 
   @override
   void dispose() {
+    FcmService.onTokenRefresh = null; // กัน callback leak ถ้ามี streaming_screen ใหม่
     _statusReporter?.stop();
     _notifDrainer?.stop();
     _usageStatsTimer?.cancel();
