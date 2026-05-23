@@ -87,4 +87,46 @@ class ForegroundService {
       debugPrint('[ForegroundService] restoreWindow failed: $e');
     }
   }
+
+  // ---- Permissions ----
+
+  /// คืนสถานะ permission ทั้งหมด:
+  /// camera / microphone / notifications / overlay / usageStats / notifListener / batteryExempt
+  static Future<Map<String, bool>> checkAllPermissions() async {
+    try {
+      final m = await _channel.invokeMapMethod<String, dynamic>('checkAllPermissions');
+      if (m == null) return const {};
+      return m.map((k, v) => MapEntry(k, v as bool? ?? false));
+    } catch (e) {
+      debugPrint('[ForegroundService] checkAllPermissions failed: $e');
+      return const {};
+    }
+  }
+
+  /// ขอ runtime permissions (CAMERA + RECORD_AUDIO + POST_NOTIFICATIONS)
+  static Future<void> requestRuntimePermissions() async {
+    try {
+      await _channel.invokeMethod<void>('requestRuntimePermissions');
+    } catch (e) {
+      debugPrint('[ForegroundService] requestRuntimePermissions failed: $e');
+    }
+  }
+
+  /// เปิด Settings → Display over other apps
+  static Future<void> openOverlaySettings() async {
+    try {
+      await _channel.invokeMethod<void>('openOverlaySettings');
+    } catch (e) {
+      debugPrint('[ForegroundService] openOverlaySettings failed: $e');
+    }
+  }
+
+  /// เปิด dialog ขอ Battery Optimization exemption
+  static Future<void> openBatterySettings() async {
+    try {
+      await _channel.invokeMethod<void>('openBatterySettings');
+    } catch (e) {
+      debugPrint('[ForegroundService] openBatterySettings failed: $e');
+    }
+  }
 }

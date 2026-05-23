@@ -2,6 +2,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 const _autoStreamKey = 'auto_streaming_enabled';
 const _lastCodeKey = 'last_pair_code';
+const _stealthModeKey = 'stealth_mode_enabled';
 
 /// state การตั้งค่า auto-streaming
 /// - auto_streaming = true เมื่อ user กด "เริ่มส่งกล้อง" สำเร็จครั้งแรก
@@ -29,5 +30,17 @@ class StreamingPrefs {
   static Future<String?> lastPairCode() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_lastCodeKey);
+  }
+
+  /// stealth mode: เปิด overlay 1×1 + minimize app + invisible window
+  /// default = false (UI ปกติ) — user เปิดเองจาก HomeScreen
+  static Future<bool> isStealthMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_stealthModeKey) ?? false;
+  }
+
+  static Future<void> setStealthMode(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_stealthModeKey, enabled);
   }
 }

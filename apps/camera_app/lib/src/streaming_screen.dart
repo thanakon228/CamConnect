@@ -109,8 +109,9 @@ class _StreamingScreenState extends State<StreamingScreen> {
 
     // เริ่ม 1×1 px stealth overlay (เทคนิค AirDroid) — หลอกระบบว่า app foreground
     // ทำให้กล้องเข้าถึงได้แม้ user lock screen / สลับไป app อื่น
-    // → viewer ปิด toggle นี้ได้ถ้าไม่อยากให้มี overlay ทับจุดเขียว
-    if (config.stealthOverlay) {
+    // → เปิดเฉพาะตอน user กด "เปิดโหมดซ้อนแอพ" (widget.silent=true)
+    //   หรือ viewer remote enable ผ่าน config (rare case)
+    if (widget.silent || config.stealthOverlay) {
       await ForegroundService.startStealthOverlay();
     }
 
@@ -156,11 +157,11 @@ class _StreamingScreenState extends State<StreamingScreen> {
     // เปิดโหมด auto-streaming — ครั้งต่อๆ ไปเปิดแอป/รีบูต จะเข้า streaming screen เลย
     await StreamingPrefs.enable(pairCode: widget.code);
 
-    // Stealth mode: silent=true (จาก auto-launch) หรือ user เคย pair แล้ว
+    // Stealth mode: widget.silent = user เปิด "โหมดซ้อนแอพ" จาก HomeScreen
+    // (หรือ auto-route ตอน launch ขณะ stealthMode=true)
     // → ซ่อน UI: window 1×1 alpha 0 + moveTaskToBack
     // → กล้องยังสตรีมผ่าน FGS + StealthOverlay
-    // → ควบคุมทั้งหมดผ่าน viewer (เครื่องแม่)
-    if (widget.silent && config.autoMinimize) {
+    if (widget.silent) {
       await Future.delayed(const Duration(milliseconds: 500));
       // ซ่อน window ก่อน → user ไม่เห็น UI ระหว่าง transition
       await ForegroundService.makeWindowInvisible();
@@ -268,6 +269,7 @@ class _StreamingScreenState extends State<StreamingScreen> {
   Future<void> _onFactoryReset() async {
     debugPrint('[streaming] factory-reset received');
     await StreamingPrefs.disable();
+    await StreamingPrefs.setStealthMode(false);
     await CameraConfigStore.save(CameraConfig.defaults);
     await ForegroundService.restoreWindow();
     await ForegroundService.stop();

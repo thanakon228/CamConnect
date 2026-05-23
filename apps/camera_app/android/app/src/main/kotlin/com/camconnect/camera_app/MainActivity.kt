@@ -205,6 +205,25 @@ class MainActivity : FlutterActivity() {
                     val topN = call.argument<Int>("topN") ?: 15
                     result.success(UsageStatsAggregator.read(this, rangeMs, topN))
                 }
+                "checkAllPermissions" -> {
+                    // คืนสถานะ permission ทุกตัวสำหรับ PermissionsScreen
+                    result.success(checkAllPermissions())
+                }
+                "requestRuntimePermissions" -> {
+                    // ขอ runtime permissions ทั้งหมด (CAMERA, RECORD_AUDIO, POST_NOTIFICATIONS)
+                    ensureNotificationPermission()
+                    ensureCameraMicPermissions()
+                    result.success(true)
+                }
+                "openOverlaySettings" -> {
+                    ensureOverlayPermission()
+                    result.success(true)
+                }
+                "openBatterySettings" -> {
+                    // ขอ exemption จาก Battery Optimization
+                    requestBatteryOptimizationExemption()
+                    result.success(true)
+                }
                 else -> result.notImplemented()
             }
         }
@@ -243,6 +262,35 @@ class MainActivity : FlutterActivity() {
             this,
             arrayOf(Manifest.permission.POST_NOTIFICATIONS),
             REQUEST_CODE_POST_NOTIFICATIONS,
+        )
+    }
+
+    /**
+     * คืนสถานะ permission ทั้งหมดที่ camera_app ต้องการ
+     * — ใช้ใน PermissionsScreen แสดงสถานะ + ปุ่มขอเฉพาะตัวที่ยังไม่ grant
+     */
+    private fun checkAllPermissions(): Map<String, Boolean> {
+        val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
+        return mapOf(
+            "camera" to (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+                == PackageManager.PERMISSION_GRANTED),
+            "microphone" to (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED),
+            "notifications" to (
+                Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                    == PackageManager.PERMISSION_GRANTED
+            ),
+            "overlay" to (
+                Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
+                android.provider.Settings.canDrawOverlays(this)
+            ),
+            "usageStats" to DeviceStatusReader.hasUsageStatsPermission(this),
+            "notifListener" to CamConnectNotifListener.isEnabled(this),
+            "batteryExempt" to (
+                Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
+                pm?.isIgnoringBatteryOptimizations(packageName) ?: false
+            ),
         )
     }
 

