@@ -1,0 +1,16 @@
+# Flutter
+**/build/
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.pub-cache/
+**/.pub/
+**/pubspec.lock
+
+# Node
+**/node_modules/
+**/dist/
+
+# OS
+.DS_Store
+Thumbs.db
