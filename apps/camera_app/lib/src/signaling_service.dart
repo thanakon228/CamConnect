@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'device_status.dart';
+import 'notif_event.dart';
 
 typedef JsonMap = Map<String, dynamic>;
 
@@ -88,6 +89,23 @@ class SignalingService {
       _socket.emit('report-status', payload);
     } else {
       _socket.onConnect((_) => _socket.emit('report-status', payload));
+    }
+  }
+
+  /// camera ส่ง batch ของ notif events ที่ดักจับได้
+  void reportNotifBatch({
+    required String deviceId,
+    required List<NotifEvent> events,
+  }) {
+    if (events.isEmpty) return;
+    final payload = <String, dynamic>{
+      'deviceId': deviceId,
+      'events': events.map((e) => e.toJson()).toList(),
+    };
+    if (_socket.connected) {
+      _socket.emit('report-notif', payload);
+    } else {
+      _socket.onConnect((_) => _socket.emit('report-notif', payload));
     }
   }
 

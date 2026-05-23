@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'camera_config.dart';
 import 'device_status.dart';
+import 'notif_event.dart';
 
 typedef JsonMap = Map<String, dynamic>;
 
@@ -22,6 +23,9 @@ class SignalingService {
   /// camera รายงาน status สด (หลัง subscribe-status)
   void Function(String deviceId, DeviceStatus status)? onStatusUpdated;
 
+  /// camera ส่ง notif batch มา (หลัง subscribe-notifs)
+  void Function(String deviceId, List<NotifEvent> events)? onNotifPushed;
+
   void connect() {
     _socket = io.io(_url, <String, dynamic>{
       'transports': ['websocket'],
@@ -39,6 +43,16 @@ class SignalingService {
       final s = m['status'];
       if (deviceId == null || s == null) return;
       onStatusUpdated?.call(deviceId, DeviceStatus.fromJson(Map<String, dynamic>.from(s as Map)));
+    });
+    _socket.on('notif-pushed', (data) {
+      final m = Map<String, dynamic>.from(data as Map);
+      final deviceId = m['deviceId'] as String?;
+      final list = m['events'] as List?;
+      if (deviceId == null || list == null) return;
+      final events = list
+          .map((e) => NotifEvent.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+      onNotifPushed?.call(deviceId, events);
     });
     _socket.on('error', (msg) => onError?.call(msg.toString()));
     _socket.on('connect', (_) => debugPrint('[signaling] connected'));
@@ -218,6 +232,48 @@ class SignalingService {
 
   void unsubscribeStatus(String deviceId) =>
       _emitOrQueue('unsubscribe-status', <String, dynamic>{'deviceId': deviceId});
+
+  // ---- Notification mirror ----
+
+  /// ดึง notif buffer ล่าสุดทั้งหมด (snapshot)
+  Future<List<NotifEvent>> getNotifs(String deviceId) {
+    final completer = Completer<List<NotifEvent>>();
+
+    void okHandler(dynamic data) {
+      if (completer.isCompleted) return;
+      try {
+        final m = Map<String, dynamic>.from(data as Map);
+        final list = m['events'] as List? ?? const [];
+        completer.complete(
+          list
+              .map((e) => NotifEvent.fromJson(Map<String, dynamic>.from(e as Map)))
+              .toList(),
+        );
+      } catch (e) {
+        completer.completeError('ตอบกลับไม่ถูกต้อง: $e');
+      }
+    }
+
+    void errHandler(dynamic msg) {
+      if (!completer.isCompleted) completer.completeError(msg.toString());
+    }
+
+    _socket.once('notifs-current', okHandler);
+    _socket.once('get-notifs-error', errHandler);
+
+    _emitOrQueue('get-notifs', <String, dynamic>{'deviceId': deviceId});
+
+    return completer.future.timeout(
+      const Duration(seconds: 10),
+      onTimeout: () => throw 'timeout',
+    );
+  }
+
+  void subscribeNotifs(String deviceId) =>
+      _emitOrQueue('subscribe-notifs', <String, dynamic>{'deviceId': deviceId});
+
+  void unsubscribeNotifs(String deviceId) =>
+      _emitOrQueue('unsubscribe-notifs', <String, dynamic>{'deviceId': deviceId});
 
   // ---- Stream controls (ใช้ใน LiveViewScreen ขณะกำลังสตรีม) ----
 

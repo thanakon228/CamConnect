@@ -4,6 +4,7 @@ import 'camera_config.dart';
 import 'device_id.dart';
 import 'fcm_service.dart';
 import 'foreground_service.dart';
+import 'notif_event.dart';
 import 'signaling_service.dart';
 import 'status_reporter.dart';
 import 'streaming_prefs.dart';
@@ -30,6 +31,7 @@ class StreamingScreen extends StatefulWidget {
 class _StreamingScreenState extends State<StreamingScreen> {
   late final SignalingService _signaling;
   StatusReporter? _statusReporter;
+  NotifDrainer? _notifDrainer;
   RTCPeerConnection? _pc;
   MediaStream? _localStream;
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
@@ -127,6 +129,14 @@ class _StreamingScreenState extends State<StreamingScreen> {
     _statusReporter = StatusReporter(signaling: _signaling, deviceId: deviceId);
     _statusReporter!.start();
 
+    // เริ่ม notif drainer — ทุก 10s ดึง notif buffer จาก native + ส่งให้ server
+    // ต้องการ Notification Listener access — ถ้ายังไม่ grant, buffer จะว่าง = no-op
+    _notifDrainer = NotifDrainer()
+      ..onDrained = (events) {
+        _signaling.reportNotifBatch(deviceId: deviceId, events: events);
+      }
+      ..start();
+
     // เปิดโหมด auto-streaming — ครั้งต่อๆ ไปเปิดแอป/รีบูต จะเข้า streaming screen เลย
     await StreamingPrefs.enable(pairCode: widget.code);
 
@@ -219,6 +229,7 @@ class _StreamingScreenState extends State<StreamingScreen> {
   @override
   void dispose() {
     _statusReporter?.stop();
+    _notifDrainer?.stop();
     _localRenderer.dispose();
     _localStream?.dispose();
     _pc?.dispose();

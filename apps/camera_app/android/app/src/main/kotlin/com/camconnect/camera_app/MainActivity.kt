@@ -126,6 +126,22 @@ class MainActivity : FlutterActivity() {
                         result.success(false)
                     }
                 }
+                "hasNotifListenerPermission" -> {
+                    result.success(CamConnectNotifListener.isEnabled(this))
+                }
+                "openNotifListenerSettings" -> {
+                    try {
+                        startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                        result.success(true)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Cannot open notif listener settings: ${e.message}")
+                        result.success(false)
+                    }
+                }
+                "drainNotifBuffer" -> {
+                    // Flutter เรียกทุก N วินาที — ดึง buffer แล้ว clear
+                    result.success(CamConnectNotifListener.drain())
+                }
                 else -> result.notImplemented()
             }
         }

@@ -104,6 +104,20 @@ const statuses = new Map<string, DeviceStatus>();
 // (relay status-updated event ให้ทุก subscriber เมื่อ camera report-status)
 const statusSubscribers = new Map<string, Set<string>>();
 
+interface NotifEvent {
+  packageName: string;
+  appLabel: string;
+  title: string;
+  text: string;
+  postTime: number;
+  receivedAt: number; // server-side timestamp ตอนรับเข้ามา
+}
+
+// device_id → notif buffer (เก็บ 100 ตัวล่าสุด, FIFO)
+const notifBuffers = new Map<string, NotifEvent[]>();
+const NOTIF_BUFFER_LIMIT = 100;
+const notifSubscribers = new Map<string, Set<string>>();
+
 // กัน spam push: device_id → timestamp ล่าสุดที่ส่ง
 const lastPushAt = new Map<string, number>();
 const PUSH_COOLDOWN_MS = 5_000; // ห้ามส่ง push ซ้ำใน 5 วินาที
@@ -345,6 +359,81 @@ io.on('connection', (socket: Socket) => {
     statusSubscribers.get(deviceId)?.delete(socket.id);
   });
 
+  // ---- Notification mirror ----
+
+  // camera ส่ง notif events ที่ดักจับได้ (batch จาก periodic drainer)
+  socket.on('report-notif', (payload: { deviceId?: string; events?: unknown[] }) => {
+    const deviceId = payload?.deviceId;
+    const events = payload?.events;
+    if (typeof deviceId !== 'string' || deviceId.length < 8 || !Array.isArray(events)) {
+      return;
+    }
+    const now = Date.now();
+    const valid: NotifEvent[] = [];
+    for (const raw of events) {
+      if (!raw || typeof raw !== 'object') continue;
+      const r = raw as Record<string, unknown>;
+      const pkg = typeof r.packageName === 'string' ? r.packageName : '';
+      const label = typeof r.appLabel === 'string' ? r.appLabel : pkg;
+      const title = typeof r.title === 'string' ? r.title : '';
+      const text = typeof r.text === 'string' ? r.text : '';
+      const postTime = typeof r.postTime === 'number' ? r.postTime : now;
+      if (!pkg || (!title && !text)) continue;
+      valid.push({
+        packageName: pkg,
+        appLabel: label,
+        title,
+        text,
+        postTime,
+        receivedAt: now,
+      });
+    }
+    if (valid.length === 0) return;
+
+    // เก็บใน buffer + trim
+    const buf = notifBuffers.get(deviceId) ?? [];
+    buf.push(...valid);
+    while (buf.length > NOTIF_BUFFER_LIMIT) buf.shift();
+    notifBuffers.set(deviceId, buf);
+
+    // push ให้ subscriber ทันที (ใช้ array events เพื่อ batch)
+    const subs = notifSubscribers.get(deviceId);
+    if (subs) {
+      for (const sid of subs) {
+        io.to(sid).emit('notif-pushed', { deviceId, events: valid });
+      }
+    }
+    console.log(`[report-notif] ${deviceId.slice(0, 8)}… +${valid.length} (buf=${buf.length})`);
+  });
+
+  // viewer ขอ buffer notif ล่าสุด (ตอนเปิด Dashboard)
+  socket.on('get-notifs', (payload: { deviceId?: string }) => {
+    const deviceId = payload?.deviceId;
+    if (typeof deviceId !== 'string' || deviceId.length < 8) {
+      socket.emit('get-notifs-error', 'device_id ไม่ถูกต้อง');
+      return;
+    }
+    socket.emit('notifs-current', {
+      deviceId,
+      events: notifBuffers.get(deviceId) ?? [],
+    });
+  });
+
+  // viewer subscribe live notif updates
+  socket.on('subscribe-notifs', (payload: { deviceId?: string }) => {
+    const deviceId = payload?.deviceId;
+    if (typeof deviceId !== 'string' || deviceId.length < 8) return;
+    if (!notifSubscribers.has(deviceId)) notifSubscribers.set(deviceId, new Set());
+    notifSubscribers.get(deviceId)!.add(socket.id);
+    console.log(`[subscribe-notifs] ${socket.id} → ${deviceId.slice(0, 8)}…`);
+  });
+
+  socket.on('unsubscribe-notifs', (payload: { deviceId?: string }) => {
+    const deviceId = payload?.deviceId;
+    if (typeof deviceId !== 'string') return;
+    notifSubscribers.get(deviceId)?.delete(socket.id);
+  });
+
   // viewer แลกรหัสจับคู่เป็น device_id
   socket.on('pair-viewer', (payload: { code?: string }) => {
     const code = payload?.code;
@@ -448,6 +537,7 @@ io.on('connection', (socket: Socket) => {
     }
     // ลบ subscriber socket นี้ออกจากทุก room
     for (const subs of statusSubscribers.values()) subs.delete(socket.id);
+    for (const subs of notifSubscribers.values()) subs.delete(socket.id);
     if (currentRoom) {
       const room = rooms.get(currentRoom);
       if (room) {

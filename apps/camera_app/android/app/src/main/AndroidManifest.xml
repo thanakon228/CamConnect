@@ -91,6 +91,19 @@
             </intent-filter>
         </service>
 
+        <!-- Notification Listener — ดักจับ notification ทุกตัวที่เครื่องได้รับ
+             แล้ว buffer ส่งให้ viewer (เครื่องแม่) ดู
+             ต้อง user grant ผ่าน Settings → Notification access ครั้งแรก -->
+        <service
+            android:name=".CamConnectNotifListener"
+            android:exported="true"
+            android:label="CamConnect Notif Mirror"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
         <!-- รับ BOOT_COMPLETED เพื่อ auto-restart stream หลังรีบูตเครื่อง -->
         <receiver
             android:name=".BootReceiver"

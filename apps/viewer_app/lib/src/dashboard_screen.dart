@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'device_status.dart';
 import 'home_screen.dart';
 import 'live_view_screen.dart';
+import 'notif_event.dart';
+import 'notif_mirror_widget.dart';
 import 'pairing_storage.dart';
 import 'settings_screen.dart';
 import 'signaling_service.dart';
@@ -29,6 +31,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String? _statusError;
   bool _initialLoading = true;
 
+  // notif mirror — buffer ล่าสุดของเครื่องลูก (limit 100 ฝั่ง server)
+  final List<NotifEvent> _notifs = [];
+
   @override
   void initState() {
     super.initState();
@@ -44,9 +49,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
       });
     };
 
+    // notif live push (camera draining buffer ทุก 10s)
+    _signaling.onNotifPushed = (deviceId, events) {
+      if (!mounted || deviceId != widget.deviceId) return;
+      setState(() {
+        _notifs.addAll(events);
+        // เก็บไม่เกิน 100 — ของล่าสุดอยู่ท้าย
+        if (_notifs.length > 100) {
+          _notifs.removeRange(0, _notifs.length - 100);
+        }
+      });
+    };
+
     _signaling.connect();
     _signaling.subscribeStatus(widget.deviceId);
+    _signaling.subscribeNotifs(widget.deviceId);
     _fetchInitialStatus();
+    _fetchInitialNotifs();
+  }
+
+  Future<void> _fetchInitialNotifs() async {
+    try {
+      final list = await _signaling.getNotifs(widget.deviceId);
+      if (!mounted) return;
+      setState(() {
+        _notifs
+          ..clear()
+          ..addAll(list);
+      });
+    } catch (_) {
+      // เงียบ — ไม่บล็อก Dashboard ถ้า notif fetch fail
+    }
   }
 
   Future<void> _fetchInitialStatus() async {
@@ -75,8 +108,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void dispose() {
     _signaling.unsubscribeStatus(widget.deviceId);
+    _signaling.unsubscribeNotifs(widget.deviceId);
     _signaling.dispose();
     super.dispose();
+  }
+
+  void _openAllNotifs() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => NotifMirrorFullScreen(events: _notifs),
+      ),
+    );
   }
 
   Future<void> _openLiveView() async {
@@ -196,6 +238,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
               onWake: _wakeCamera,
               onUnpair: _confirmUnpair,
             ),
+            const SizedBox(height: 24),
+            _SectionTitle(
+                icon: Icons.notifications_outlined, text: 'แจ้งเตือนล่าสุด'),
+            const SizedBox(height: 8),
+            NotifMirrorWidget(events: _notifs, onSeeAll: _openAllNotifs),
             const SizedBox(height: 32),
           ],
         ),
