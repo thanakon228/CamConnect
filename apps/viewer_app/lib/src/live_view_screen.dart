@@ -24,7 +24,7 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
   MediaStream? _remoteStream;
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
   bool _hasVideo = false;
-  String _status = 'กำลังเชื่อมต่อ...';
+  String _status = 'กำลังเรียกเครื่องลูก...';
 
   @override
   void initState() {
@@ -68,7 +68,7 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
 
     // join room ด้วย device_id ตรงๆ (ไม่ผ่านรหัส 6 หลักแล้ว)
     _signaling.joinRoom(widget.deviceId);
-    setState(() => _status = 'รอสัญญาณกล้อง...');
+    setState(() => _status = 'กำลังเรียกเครื่องลูก... รอการอนุญาต');
   }
 
   Future<void> _onOffer(Map<String, dynamic> data) async {

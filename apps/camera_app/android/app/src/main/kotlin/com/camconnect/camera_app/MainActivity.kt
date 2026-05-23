@@ -1,9 +1,13 @@
 package com.camconnect.camera_app
 
 import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -38,6 +42,9 @@ class MainActivity : FlutterActivity() {
 
         // ขอ exemption จาก Battery Optimization → Samsung/Xiaomi/Oppo จะไม่ฆ่าแอป
         requestBatteryOptimizationExemption()
+
+        // สร้าง notification channel สำหรับ "ขอเปิดกล้อง" — FCM heads-up
+        createWakeRequestChannel(this)
     }
 
     /**
@@ -105,5 +112,41 @@ class MainActivity : FlutterActivity() {
     companion object {
         private const val TAG = "MainActivity"
         private const val REQUEST_CODE_POST_NOTIFICATIONS = 1
+        const val WAKE_CHANNEL_ID = "camconnect_wake_request"
+
+        /**
+         * สร้าง notification channel ความสำคัญสูง สำหรับ FCM ขอเปิดกล้องจากแม่
+         * - IMPORTANCE_HIGH → แสดง heads-up banner เด้งจากด้านบน
+         * - sound + vibrate → ดังให้ผู้ดูแลได้ยิน
+         *
+         * เรียกได้จากทั้ง MainActivity และ MessagingService
+         * (กันเคส FCM มาก่อน user เปิดแอป)
+         */
+        fun createWakeRequestChannel(context: Context) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            if (nm.getNotificationChannel(WAKE_CHANNEL_ID) != null) return
+
+            val channel = NotificationChannel(
+                WAKE_CHANNEL_ID,
+                "ขอเปิดกล้อง",
+                NotificationManager.IMPORTANCE_HIGH,
+            ).apply {
+                description = "แจ้งเมื่อเครื่องแม่ขอเปิดกล้องดู"
+                enableVibration(true)
+                enableLights(true)
+                setShowBadge(true)
+                setBypassDnd(true)
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+                val ringtone = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                val audioAttrs = AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+                setSound(ringtone, audioAttrs)
+            }
+            nm.createNotificationChannel(channel)
+            Log.i(TAG, "Wake request notification channel created")
+        }
     }
 }
