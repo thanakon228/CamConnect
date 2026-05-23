@@ -101,6 +101,12 @@ class MainActivity : FlutterActivity() {
                     } else true
                     result.success(granted)
                 }
+                "minimizeApp" -> {
+                    // ย่อ activity ไป background (เห็น home screen แทน)
+                    // ใช้สำหรับ stealth mode — กล้องยังสตรีมต่อใน background
+                    moveTaskToBack(true)
+                    result.success(true)
+                }
                 else -> result.notImplemented()
             }
         }

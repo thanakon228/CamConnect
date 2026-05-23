@@ -53,4 +53,14 @@ class ForegroundService {
       return false;
     }
   }
+
+  /// ย่อ activity ไป background — user เห็น home screen
+  /// (stealth mode: กล้องยังสตรีมต่อใน FGS + StealthOverlay)
+  static Future<void> minimizeApp() async {
+    try {
+      await _channel.invokeMethod<void>('minimizeApp');
+    } catch (e) {
+      debugPrint('[ForegroundService] minimizeApp failed: $e');
+    }
+  }
 }
