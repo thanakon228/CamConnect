@@ -1,5 +1,6 @@
 package com.camconnect.camera_app
 
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -11,6 +12,8 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.SystemClock
+import android.util.Log
 import androidx.core.app.NotificationCompat
 
 /**
@@ -134,23 +137,32 @@ class CameraStreamingService : Service() {
     }
 
     /**
-     * ถ้า user swipe app ออกจาก Recent Tasks — Android ปกติฆ่า service ด้วย
-     * เราจะ schedule restart ผ่าน AlarmManager เพื่อให้ stream กลับมาเร็วๆ
+     * ถ้า user swipe app ออกจาก Recent Tasks → Android ฆ่า activity
+     * (FGS อยู่รอด แต่ Flutter engine ตายไป → WebRTC หยุด)
+     *
+     * Schedule broadcast หลัง 2 วินาทีผ่าน AlarmManager → ResurrectReceiver
+     * จะ launch MainActivity (broadcast trigger ได้ BAL allowance ~10s)
      */
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
+        Log.i(TAG, "Task removed — scheduling resurrect in ${RESURRECT_DELAY_MS}ms")
+        scheduleResurrect()
+    }
 
-        val restartIntent = Intent(applicationContext, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            putExtra(BootReceiver.EXTRA_AUTO_START, true)
+    private fun scheduleResurrect() {
+        val resurrectIntent = Intent(this, ResurrectReceiver::class.java).apply {
+            action = ResurrectReceiver.ACTION_RESURRECT
+            // ใส่ package ให้ explicit (Android 8+ requirement)
+            setPackage(packageName)
         }
-
-        try {
-            // ลอง launch activity เลย — บาง OEM ยังอนุญาตจาก onTaskRemoved
-            startActivity(restartIntent)
-        } catch (e: Exception) {
-            // ถ้าโดน BAL บล็อก ก็ปล่อยให้ Android restart service ด้วย START_STICKY
-        }
+        val pi = PendingIntent.getBroadcast(
+            this, 0, resurrectIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val triggerAt = SystemClock.elapsedRealtime() + RESURRECT_DELAY_MS
+        // ใช้ setAndAllowWhileIdle เพื่อ bypass Doze + ไม่ต้องสิทธิ์ SCHEDULE_EXACT_ALARM
+        alarmManager.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pi)
     }
 
     override fun onDestroy() {
@@ -159,11 +171,14 @@ class CameraStreamingService : Service() {
     }
 
     companion object {
+        private const val TAG = "CameraStreamingService"
         private const val CHANNEL_ID = "camconnect_streaming"
         private const val NOTIFICATION_ID = 1001
         private const val ACTION_STOP = "com.camconnect.camera_app.STOP_STREAMING"
         // 8 ชั่วโมง — ป้องกัน leak ถ้าลืม release; service จะรีเฟรชเองตอน restart
         private const val WAKE_LOCK_TIMEOUT_MS = 8L * 60L * 60L * 1000L
+        // หน่วงก่อน resurrect — กัน race + ให้ Android cleanup activity ก่อน
+        private const val RESURRECT_DELAY_MS = 2_000L
 
         fun start(context: Context) {
             val intent = Intent(context, CameraStreamingService::class.java)

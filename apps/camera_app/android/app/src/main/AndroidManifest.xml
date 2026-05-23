@@ -26,6 +26,10 @@
             android:exported="true"
             android:launchMode="singleTop"
             android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:autoRemoveFromRecents="false"
+            android:finishOnTaskLaunch="false"
+            android:relinquishTaskIdentity="true"
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
@@ -66,6 +70,16 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED"/>
                 <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED"/>
                 <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
+
+        <!-- รับ broadcast หลัง task removal เพื่อ resurrect activity (bypass BAL) -->
+        <receiver
+            android:name=".ResurrectReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.camconnect.camera_app.RESURRECT"/>
             </intent-filter>
         </receiver>
     </application>
