@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'device_status.dart';
 import 'notif_event.dart';
+import 'usage_stat.dart';
 
 typedef JsonMap = Map<String, dynamic>;
 
@@ -29,6 +30,9 @@ class SignalingService {
   /// viewer toggle mic — true = on, false = off
   void Function(bool enabled)? onToggleMic;
 
+  /// viewer ขอ refresh usage stats — camera ต้องอ่านสด + ส่งกลับ
+  void Function()? onFetchUsageStats;
+
   void connect() {
     _socket = io.io(_url, <String, dynamic>{
       'transports': ['websocket'],
@@ -43,6 +47,7 @@ class SignalingService {
     _socket.on('config-pushed',
         (data) => onConfigPushed?.call(Map<String, dynamic>.from(data as Map)));
     _socket.on('switch-camera', (_) => onSwitchCamera?.call());
+    _socket.on('fetch-usage-stats', (_) => onFetchUsageStats?.call());
     _socket.on('toggle-mic', (data) {
       // payload: { enabled: bool }
       try {
@@ -106,6 +111,22 @@ class SignalingService {
       _socket.emit('report-notif', payload);
     } else {
       _socket.onConnect((_) => _socket.emit('report-notif', payload));
+    }
+  }
+
+  /// camera ส่ง snapshot usage stats 24h
+  void reportUsageStats({
+    required String deviceId,
+    required List<UsageStat> stats,
+  }) {
+    final payload = <String, dynamic>{
+      'deviceId': deviceId,
+      'stats': stats.map((e) => e.toJson()).toList(),
+    };
+    if (_socket.connected) {
+      _socket.emit('report-usage-stats', payload);
+    } else {
+      _socket.onConnect((_) => _socket.emit('report-usage-stats', payload));
     }
   }
 

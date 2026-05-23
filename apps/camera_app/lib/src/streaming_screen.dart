@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'camera_config.dart';
@@ -8,6 +9,7 @@ import 'notif_event.dart';
 import 'signaling_service.dart';
 import 'status_reporter.dart';
 import 'streaming_prefs.dart';
+import 'usage_stat.dart';
 
 class StreamingScreen extends StatefulWidget {
   const StreamingScreen({
@@ -32,6 +34,8 @@ class _StreamingScreenState extends State<StreamingScreen> {
   late final SignalingService _signaling;
   StatusReporter? _statusReporter;
   NotifDrainer? _notifDrainer;
+  Timer? _usageStatsTimer;
+  String? _deviceId;
   RTCPeerConnection? _pc;
   MediaStream? _localStream;
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
@@ -65,9 +69,10 @@ class _StreamingScreenState extends State<StreamingScreen> {
     _signaling.onIceCandidate = _onRemoteIce;
     _signaling.onError = (msg) => setState(() => _status = 'ข้อผิดพลาด: $msg');
 
-    // viewer สั่งสลับกล้อง / เปิดปิดไมค์
+    // viewer สั่งสลับกล้อง / เปิดปิดไมค์ / refresh usage stats
     _signaling.onSwitchCamera = _onSwitchCamera;
     _signaling.onToggleMic = _onToggleMic;
+    _signaling.onFetchUsageStats = _reportUsageStatsOnce;
 
     // viewer push config มา → save ลง SharedPreferences (apply รอบหน้าตอน start FGS)
     _signaling.onConfigPushed = (json) async {
@@ -85,6 +90,7 @@ class _StreamingScreenState extends State<StreamingScreen> {
     // ดึง device_id + FCM token แล้ว register ทั้งคู่กับ server
     // (FCM token อาจ null ถ้า Firebase ไม่พร้อม — server จะ fallback ไม่ส่ง push)
     final deviceId = await DeviceIdStore.getOrCreate();
+    _deviceId = deviceId;
     final fcmToken = await FcmService.getToken();
     _signaling.registerCamera(
       deviceId: deviceId,
@@ -136,6 +142,14 @@ class _StreamingScreenState extends State<StreamingScreen> {
         _signaling.reportNotifBatch(deviceId: deviceId, events: events);
       }
       ..start();
+
+    // รายงาน usage stats ครั้งแรกทันที + ทุก 10 นาทีหลังจากนั้น
+    // (ถูกเรียก on-demand ผ่าน onFetchUsageStats ด้วยเมื่อ viewer กด refresh)
+    _reportUsageStatsOnce();
+    _usageStatsTimer = Timer.periodic(
+      const Duration(minutes: 10),
+      (_) => _reportUsageStatsOnce(),
+    );
 
     // เปิดโหมด auto-streaming — ครั้งต่อๆ ไปเปิดแอป/รีบูต จะเข้า streaming screen เลย
     await StreamingPrefs.enable(pairCode: widget.code);
@@ -226,10 +240,24 @@ class _StreamingScreenState extends State<StreamingScreen> {
     debugPrint('[streaming] mic ${enabled ? "ON" : "OFF"}');
   }
 
+  /// อ่าน usage stats จาก native + ส่งให้ server (no-op ถ้ายังไม่ grant permission)
+  Future<void> _reportUsageStatsOnce() async {
+    final id = _deviceId;
+    if (id == null) return;
+    try {
+      final stats = await UsageStat.read();
+      _signaling.reportUsageStats(deviceId: id, stats: stats);
+      debugPrint('[streaming] usage stats reported (${stats.length} apps)');
+    } catch (e) {
+      debugPrint('[streaming] usage stats report failed: $e');
+    }
+  }
+
   @override
   void dispose() {
     _statusReporter?.stop();
     _notifDrainer?.stop();
+    _usageStatsTimer?.cancel();
     _localRenderer.dispose();
     _localStream?.dispose();
     _pc?.dispose();

@@ -4,6 +4,7 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'camera_config.dart';
 import 'device_status.dart';
 import 'notif_event.dart';
+import 'usage_stat.dart';
 
 typedef JsonMap = Map<String, dynamic>;
 
@@ -25,6 +26,9 @@ class SignalingService {
 
   /// camera ส่ง notif batch มา (หลัง subscribe-notifs)
   void Function(String deviceId, List<NotifEvent> events)? onNotifPushed;
+
+  /// camera ส่ง usage stats สด
+  void Function(String deviceId, UsageReport report)? onUsageStatsUpdated;
 
   void connect() {
     _socket = io.io(_url, <String, dynamic>{
@@ -53,6 +57,12 @@ class SignalingService {
           .map((e) => NotifEvent.fromJson(Map<String, dynamic>.from(e as Map)))
           .toList();
       onNotifPushed?.call(deviceId, events);
+    });
+    _socket.on('usage-stats-updated', (data) {
+      final m = Map<String, dynamic>.from(data as Map);
+      final deviceId = m['deviceId'] as String?;
+      if (deviceId == null) return;
+      onUsageStatsUpdated?.call(deviceId, UsageReport.fromJson(m));
     });
     _socket.on('error', (msg) => onError?.call(msg.toString()));
     _socket.on('connect', (_) => debugPrint('[signaling] connected'));
@@ -274,6 +284,46 @@ class SignalingService {
 
   void unsubscribeNotifs(String deviceId) =>
       _emitOrQueue('unsubscribe-notifs', <String, dynamic>{'deviceId': deviceId});
+
+  // ---- Usage stats ----
+
+  Future<UsageReport> getUsageStats(String deviceId) {
+    final completer = Completer<UsageReport>();
+
+    void okHandler(dynamic data) {
+      if (completer.isCompleted) return;
+      try {
+        final m = Map<String, dynamic>.from(data as Map);
+        completer.complete(UsageReport.fromJson(m));
+      } catch (e) {
+        completer.completeError('ตอบกลับไม่ถูกต้อง: $e');
+      }
+    }
+
+    void errHandler(dynamic msg) {
+      if (!completer.isCompleted) completer.completeError(msg.toString());
+    }
+
+    _socket.once('usage-stats-current', okHandler);
+    _socket.once('get-usage-stats-error', errHandler);
+
+    _emitOrQueue('get-usage-stats', <String, dynamic>{'deviceId': deviceId});
+
+    return completer.future.timeout(
+      const Duration(seconds: 10),
+      onTimeout: () => throw 'timeout',
+    );
+  }
+
+  void subscribeUsageStats(String deviceId) => _emitOrQueue(
+      'subscribe-usage-stats', <String, dynamic>{'deviceId': deviceId});
+
+  void unsubscribeUsageStats(String deviceId) => _emitOrQueue(
+      'unsubscribe-usage-stats', <String, dynamic>{'deviceId': deviceId});
+
+  /// บอกกล้องให้ refresh stats ทันที (camera จะอ่านใหม่แล้ว report)
+  void refreshUsageStats(String deviceId) =>
+      _emitOrQueue('refresh-usage-stats', <String, dynamic>{'deviceId': deviceId});
 
   // ---- Stream controls (ใช้ใน LiveViewScreen ขณะกำลังสตรีม) ----
 

@@ -8,6 +8,8 @@ import 'pairing_storage.dart';
 import 'settings_screen.dart';
 import 'signaling_service.dart';
 import 'status_panel_widget.dart';
+import 'usage_stat.dart';
+import 'usage_stats_widget.dart';
 
 /// หน้าหลักของ viewer หลัง pair แล้ว — แสดง status เครื่องลูก + ปุ่ม action
 /// แทนที่ LiveViewScreen เป็น default route — user ต้องกด "ดูกล้อง" ถึงจะเข้าสตรีม
@@ -33,6 +35,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   // notif mirror — buffer ล่าสุดของเครื่องลูก (limit 100 ฝั่ง server)
   final List<NotifEvent> _notifs = [];
+
+  // usage stats — snapshot 24h (camera report ทุก 10 นาที)
+  UsageReport? _usage;
 
   @override
   void initState() {
@@ -61,11 +66,45 @@ class _DashboardScreenState extends State<DashboardScreen> {
       });
     };
 
+    _signaling.onUsageStatsUpdated = (deviceId, report) {
+      if (!mounted || deviceId != widget.deviceId) return;
+      setState(() => _usage = report);
+    };
+
     _signaling.connect();
     _signaling.subscribeStatus(widget.deviceId);
     _signaling.subscribeNotifs(widget.deviceId);
+    _signaling.subscribeUsageStats(widget.deviceId);
     _fetchInitialStatus();
     _fetchInitialNotifs();
+    _fetchInitialUsageStats();
+  }
+
+  Future<void> _fetchInitialUsageStats() async {
+    try {
+      final r = await _signaling.getUsageStats(widget.deviceId);
+      if (!mounted) return;
+      setState(() => _usage = r);
+    } catch (_) {
+      // เงียบ — Dashboard ยังใช้งานได้ ไม่บล็อก
+    }
+  }
+
+  void _refreshUsageStats() {
+    _signaling.refreshUsageStats(widget.deviceId);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('สั่งรีเฟรชแล้ว — รอกล้องตอบกลับ'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _openAllUsageStats() {
+    final stats = _usage?.stats ?? const <UsageStat>[];
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => UsageStatsFullScreen(stats: stats)),
+    );
   }
 
   Future<void> _fetchInitialNotifs() async {
@@ -109,6 +148,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void dispose() {
     _signaling.unsubscribeStatus(widget.deviceId);
     _signaling.unsubscribeNotifs(widget.deviceId);
+    _signaling.unsubscribeUsageStats(widget.deviceId);
     _signaling.dispose();
     super.dispose();
   }
@@ -243,6 +283,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 icon: Icons.notifications_outlined, text: 'แจ้งเตือนล่าสุด'),
             const SizedBox(height: 8),
             NotifMirrorWidget(events: _notifs, onSeeAll: _openAllNotifs),
+            const SizedBox(height: 24),
+            _SectionTitle(
+                icon: Icons.bar_chart, text: 'แอพที่ใช้บ่อย (24 ชม.)'),
+            const SizedBox(height: 8),
+            UsageStatsWidget(
+              stats: _usage?.stats ?? const [],
+              onRefresh: _refreshUsageStats,
+              onSeeAll: _openAllUsageStats,
+              reportedAt: _usage?.reportedAt ?? 0,
+            ),
             const SizedBox(height: 32),
           ],
         ),

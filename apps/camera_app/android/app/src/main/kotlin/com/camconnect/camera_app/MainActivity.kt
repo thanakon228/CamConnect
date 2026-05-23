@@ -142,6 +142,13 @@ class MainActivity : FlutterActivity() {
                     // Flutter เรียกทุก N วินาที — ดึง buffer แล้ว clear
                     result.success(CamConnectNotifListener.drain())
                 }
+                "readUsageStats" -> {
+                    // rangeMs default 24 ชั่วโมง, topN default 15
+                    val rangeMs = (call.argument<Number>("rangeMs")?.toLong())
+                        ?: (24L * 60L * 60L * 1000L)
+                    val topN = call.argument<Int>("topN") ?: 15
+                    result.success(UsageStatsAggregator.read(this, rangeMs, topN))
+                }
                 else -> result.notImplemented()
             }
         }

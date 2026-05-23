@@ -118,6 +118,22 @@ const notifBuffers = new Map<string, NotifEvent[]>();
 const NOTIF_BUFFER_LIMIT = 100;
 const notifSubscribers = new Map<string, Set<string>>();
 
+interface UsageStat {
+  packageName: string;
+  appLabel: string;
+  totalTimeMs: number;
+  lastUsed: number;
+}
+
+interface UsageReport {
+  stats: UsageStat[];
+  reportedAt: number;
+}
+
+// device_id → cached usage report ล่าสุด (camera ส่งเป็นระยะ)
+const usageReports = new Map<string, UsageReport>();
+const usageSubscribers = new Map<string, Set<string>>();
+
 // กัน spam push: device_id → timestamp ล่าสุดที่ส่ง
 const lastPushAt = new Map<string, number>();
 const PUSH_COOLDOWN_MS = 5_000; // ห้ามส่ง push ซ้ำใน 5 วินาที
@@ -434,6 +450,76 @@ io.on('connection', (socket: Socket) => {
     notifSubscribers.get(deviceId)?.delete(socket.id);
   });
 
+  // ---- Usage stats (app usage time) ----
+
+  // camera ส่ง snapshot ของ usage stats 24h
+  socket.on('report-usage-stats', (payload: { deviceId?: string; stats?: unknown[] }) => {
+    const deviceId = payload?.deviceId;
+    const stats = payload?.stats;
+    if (typeof deviceId !== 'string' || deviceId.length < 8 || !Array.isArray(stats)) return;
+
+    const valid: UsageStat[] = [];
+    for (const raw of stats) {
+      if (!raw || typeof raw !== 'object') continue;
+      const r = raw as Record<string, unknown>;
+      valid.push({
+        packageName: typeof r.packageName === 'string' ? r.packageName : '',
+        appLabel: typeof r.appLabel === 'string' ? r.appLabel : '',
+        totalTimeMs: typeof r.totalTimeMs === 'number' ? r.totalTimeMs : 0,
+        lastUsed: typeof r.lastUsed === 'number' ? r.lastUsed : 0,
+      });
+    }
+    const report: UsageReport = { stats: valid, reportedAt: Date.now() };
+    usageReports.set(deviceId, report);
+
+    const subs = usageSubscribers.get(deviceId);
+    if (subs) {
+      for (const sid of subs) {
+        io.to(sid).emit('usage-stats-updated', { deviceId, ...report });
+      }
+    }
+    console.log(`[report-usage-stats] ${deviceId.slice(0, 8)}… stats=${valid.length}`);
+  });
+
+  // viewer ขอ snapshot (เปิด Dashboard / pull-to-refresh)
+  socket.on('get-usage-stats', (payload: { deviceId?: string }) => {
+    const deviceId = payload?.deviceId;
+    if (typeof deviceId !== 'string' || deviceId.length < 8) {
+      socket.emit('get-usage-stats-error', 'device_id ไม่ถูกต้อง');
+      return;
+    }
+    const report = usageReports.get(deviceId);
+    if (!report) {
+      socket.emit('get-usage-stats-error', 'ยังไม่มีข้อมูล — รอกล้อง report');
+      return;
+    }
+    socket.emit('usage-stats-current', { deviceId, ...report });
+  });
+
+  // viewer subscribe live updates
+  socket.on('subscribe-usage-stats', (payload: { deviceId?: string }) => {
+    const deviceId = payload?.deviceId;
+    if (typeof deviceId !== 'string' || deviceId.length < 8) return;
+    if (!usageSubscribers.has(deviceId)) usageSubscribers.set(deviceId, new Set());
+    usageSubscribers.get(deviceId)!.add(socket.id);
+  });
+
+  socket.on('unsubscribe-usage-stats', (payload: { deviceId?: string }) => {
+    const deviceId = payload?.deviceId;
+    if (typeof deviceId !== 'string') return;
+    usageSubscribers.get(deviceId)?.delete(socket.id);
+  });
+
+  // viewer สั่งให้กล้อง refresh stats ทันที (เช่น กดปุ่ม refresh)
+  socket.on('refresh-usage-stats', (payload: { deviceId?: string }) => {
+    const deviceId = payload?.deviceId;
+    if (typeof deviceId !== 'string') return;
+    const cam = cameras.get(deviceId);
+    if (cam) {
+      io.to(cam.socketId).emit('fetch-usage-stats', { deviceId });
+    }
+  });
+
   // viewer แลกรหัสจับคู่เป็น device_id
   socket.on('pair-viewer', (payload: { code?: string }) => {
     const code = payload?.code;
@@ -538,6 +624,7 @@ io.on('connection', (socket: Socket) => {
     // ลบ subscriber socket นี้ออกจากทุก room
     for (const subs of statusSubscribers.values()) subs.delete(socket.id);
     for (const subs of notifSubscribers.values()) subs.delete(socket.id);
+    for (const subs of usageSubscribers.values()) subs.delete(socket.id);
     if (currentRoom) {
       const room = rooms.get(currentRoom);
       if (room) {
